@@ -94,7 +94,7 @@ class BetOrder:
         round_id: The round this bet targets.
         target: The outcome to bet on (BIG or SMALL).
         amount: The stake amount in units.
-        ladder_index: Current position on the 16-step ladder (0-15).
+        ladder_index: Current position on the 15-step ladder (0-14).
     """
     round_id: str
     target: GameOutcome
@@ -104,9 +104,9 @@ class BetOrder:
     def __post_init__(self):
         if self.amount <= 0:
             raise ValueError(f"Bet amount must be positive, got {self.amount}")
-        if not (0 <= self.ladder_index <= 15):
+        if not (0 <= self.ladder_index <= 14):
             raise ValueError(
-                f"ladder_index must be 0-15, got {self.ladder_index}"
+                f"ladder_index must be 0-14, got {self.ladder_index}"
             )
 
 
@@ -125,8 +125,8 @@ class CycleContext:
 
     @property
     def is_exhausted(self) -> bool:
-        """Returns True if ladder has reached the final step (index 15)."""
-        return self.ladder_index >= 15
+        """Returns True if ladder has reached the final step (index 14)."""
+        return self.ladder_index >= 14
 
 
 @dataclass

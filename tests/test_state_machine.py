@@ -109,9 +109,9 @@ class TestWinResolution:
         assert result.bet_order is None
         assert state_machine.cycle is None
 
-    @pytest.mark.parametrize("win_step", range(16))
+    @pytest.mark.parametrize("win_step", range(15))
     def test_win_at_each_step(self, state_machine, win_step):
-        """Win at any step K (0-15) should reset to IDLE_OBSERVING."""
+        """Win at any step K (0-14) should reset to IDLE_OBSERVING."""
         # Trigger with 3 BIGs → target SMALL
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
@@ -121,7 +121,7 @@ class TestWinResolution:
             loss = make_resolution(f"loss_{i:04d}", 7)  # BIG = loss
             result = state_machine.on_round_resolved(loss)
             if state_machine.state == EngineState.COOLDOWN:
-                # Step 15 was lost → ladder exhausted, can't win anymore
+                # Step 14 was lost → ladder exhausted, can't win anymore
                 return
             assert result.new_state == EngineState.ACTIVE_BETTING
 
@@ -157,19 +157,13 @@ class TestLossProgression:
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
 
-        # Lose 15 rounds (steps 0 through 14)
-        for i in range(15):
+        # Lose 14 rounds (steps 0 through 13 advance to steps 1 through 14)
+        for i in range(14):
             loss = make_resolution(f"loss_{i:04d}", 7)
             result = state_machine.on_round_resolved(loss)
-            
-            if i < 14:  # Steps 0-13 lost → advance to steps 1-14
-                assert result.new_state == EngineState.ACTIVE_BETTING
-                assert result.bet_order.ladder_index == i + 1
-                assert result.bet_order.amount == BET_LADDER[i + 1]
-            elif i == 14:  # Step 14 lost → advance to step 15
-                assert result.new_state == EngineState.ACTIVE_BETTING
-                assert result.bet_order.ladder_index == 15
-                assert result.bet_order.amount == BET_LADDER[15]  # 75000
+            assert result.new_state == EngineState.ACTIVE_BETTING
+            assert result.bet_order.ladder_index == i + 1
+            assert result.bet_order.amount == BET_LADDER[i + 1]
 
     def test_target_remains_fixed_through_losses(self, state_machine):
         """Target should never change during a loss sequence."""
@@ -186,20 +180,20 @@ class TestLossProgression:
 
 
 class TestLadderExhaustion:
-    """Test the 16th loss (step 15) triggers Hard Cycle Abort → COOLDOWN."""
+    """Test the 15th loss (step 14) triggers Hard Cycle Abort → COOLDOWN."""
 
-    def test_step_15_loss_triggers_cooldown(self, state_machine):
-        """Losing at step 15 should transition to COOLDOWN."""
+    def test_step_14_loss_triggers_cooldown(self, state_machine):
+        """Losing at step 14 should transition to COOLDOWN."""
         # Trigger active betting
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
 
-        # Lose 16 rounds (steps 0-15)
-        for i in range(16):
+        # Lose 15 rounds (steps 0-14)
+        for i in range(15):
             loss = make_resolution(f"loss_{i:04d}", 7)
             result = state_machine.on_round_resolved(loss)
 
-        # After 16th loss (step 15), should be in COOLDOWN
+        # After 15th loss (step 14), should be in COOLDOWN
         assert result.new_state == EngineState.COOLDOWN
         assert result.bet_order is None
         assert state_machine.cycle is None
@@ -213,7 +207,7 @@ class TestCooldown:
         # Trigger and exhaust ladder
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
-        for i in range(16):
+        for i in range(15):
             state_machine.on_round_resolved(make_resolution(f"loss_{i:04d}", 7))
         
         assert state_machine.state == EngineState.COOLDOWN
@@ -230,7 +224,7 @@ class TestCooldown:
         # Trigger and exhaust
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
-        for i in range(16):
+        for i in range(15):
             state_machine.on_round_resolved(make_resolution(f"loss_{i:04d}", 7))
         
         # Cooldown round (ID must sort after loss rounds)
@@ -260,6 +254,13 @@ class TestIdempotency:
         # Older round ID
         result = state_machine.on_round_resolved(make_resolution("round_001", 2))
         assert "Duplicate" in result.message or "ignored" in result.message.lower()
+
+    def test_numeric_round_id_rollover_not_stale(self, state_machine):
+        # String "1000" < "999" lexicographically, but numerically 1000 > 999
+        state_machine.on_round_resolved(make_resolution("999", 7))
+        result = state_machine.on_round_resolved(make_resolution("1000", 2))
+        assert "ignored" not in result.message.lower()
+        assert state_machine.last_processed_round_id == "1000"
 
 
 class TestHaltState:

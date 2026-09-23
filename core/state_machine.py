@@ -56,8 +56,8 @@ class DeterministicStateMachine:
     with optional BetOrder directives. Guarantees:
     - At most one bet per round (idempotency via round_id tracking).
     - Streak detection requires exactly N consecutive identical outcomes.
-    - Ladder progression follows the fixed 16-step sequence.
-    - Exhaustion at step 15 triggers cooldown, not further betting.
+    - Ladder progression follows the fixed 15-step sequence.
+    - Exhaustion at step 14 triggers cooldown, not further betting.
     """
 
     def __init__(self):
@@ -84,13 +84,19 @@ class DeterministicStateMachine:
             TransitionResult containing the new state and optional bet order.
         """
         # Idempotency guard: reject duplicate or stale rounds
-        if (
-            self.last_processed_round_id is not None
-            and resolution.round_id <= self.last_processed_round_id
-        ):
+        is_stale = False
+        if self.last_processed_round_id is not None:
+            if resolution.round_id == self.last_processed_round_id:
+                is_stale = True
+            elif resolution.round_id.isdigit() and self.last_processed_round_id.isdigit():
+                is_stale = int(resolution.round_id) <= int(self.last_processed_round_id)
+            else:
+                is_stale = resolution.round_id <= self.last_processed_round_id
+
+        if is_stale:
             return TransitionResult(
                 new_state=self.state,
-                message=f"Duplicate round {resolution.round_id} ignored.",
+                message=f"Duplicate or stale round {resolution.round_id} ignored.",
             )
 
         # Record this round

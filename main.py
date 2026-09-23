@@ -91,6 +91,10 @@ async def cmd_run(settings: Settings, dry_run: bool = False):
         logger.info(f"Navigating to {settings.BASE_URL}...")
         await page.goto(settings.BASE_URL, wait_until="domcontentloaded", timeout=30000)
         
+        # Settle delay: allow dynamic single-page web app to mount DOM and network listeners
+        logger.info("Waiting 3s for page and dynamic UI components to settle...")
+        await asyncio.sleep(3.0)
+        
         # Create and run orchestrator
         runner = OrchestratorRunner(
             settings=settings,

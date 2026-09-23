@@ -53,6 +53,7 @@ class DomObserver:
     def __init__(self, selectors: AppSelectors):
         self.selectors = selectors
         self.last_processed_round_id: Optional[str] = None
+        self._processed_round_ids: set[str] = set()
         self._last_countdown: Optional[int] = None
         self._desync_counter: int = 0
 
@@ -232,21 +233,42 @@ class DomObserver:
         """
         Check if the given round ID represents a new, unprocessed round.
         
+        Supports numeric sequence check as well as rolling seen set
+        to prevent string lexicographical comparison issues.
+        
         Args:
             round_id: The round ID to check.
             
         Returns:
             True if this is a new round that hasn't been processed.
         """
-        if round_id is None:
+        if not round_id or not round_id.strip():
             return False
+            
+        clean_id = round_id.strip()
+        if clean_id in self._processed_round_ids:
+            return False
+
         if self.last_processed_round_id is None:
             return True
-        return round_id > self.last_processed_round_id
+
+        if clean_id == self.last_processed_round_id:
+            return False
+
+        # Numeric comparison if both round IDs are digits (prevents "1000" < "999" string bug)
+        if clean_id.isdigit() and self.last_processed_round_id.isdigit():
+            return int(clean_id) > int(self.last_processed_round_id)
+
+        # Fallback to string comparison
+        return clean_id > self.last_processed_round_id
 
     def mark_processed(self, round_id: str):
         """Mark a round as processed to prevent reprocessing."""
-        self.last_processed_round_id = round_id
+        clean_id = round_id.strip()
+        self.last_processed_round_id = clean_id
+        self._processed_round_ids.add(clean_id)
+        if len(self._processed_round_ids) > 200:
+            self._processed_round_ids = set(list(self._processed_round_ids)[-100:])
 
     @property
     def desync_count(self) -> int:

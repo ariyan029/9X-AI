@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     MAX_TIMING_WINDOW_SEC: int = 25
     POLL_INTERVAL_MS: int = 250
     STOP_LOSS_BALANCE: float = 0.0
-    MAX_DESYNC_RETRIES: int = 3
+    MAX_DESYNC_RETRIES: int = 20
 
     @property
     def poll_interval_seconds(self) -> float:

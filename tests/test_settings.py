@@ -22,7 +22,7 @@ class TestSettings:
         assert settings.MAX_TIMING_WINDOW_SEC == 25
         assert settings.POLL_INTERVAL_MS == 250
         assert settings.STOP_LOSS_BALANCE == 0.0
-        assert settings.MAX_DESYNC_RETRIES == 3
+        assert settings.MAX_DESYNC_RETRIES == 20
 
     def test_poll_interval_seconds(self):
         settings = Settings(POLL_INTERVAL_MS=500)
