@@ -11,28 +11,7 @@ Covers:
 import pytest
 
 
-class TimingGatekeeper:
-    """
-    Timing window validator.
-    
-    Ensures bet execution only occurs when the countdown is
-    between MIN_SECONDS and MAX_SECONDS (inclusive).
-    """
-    MIN_SECONDS: int = 10
-    MAX_SECONDS: int = 25
-
-    @classmethod
-    def is_within_window(cls, remaining_seconds: int) -> bool:
-        """
-        Check if the countdown is within the safe betting window.
-        
-        Args:
-            remaining_seconds: Current countdown value.
-            
-        Returns:
-            True if MIN_SECONDS <= remaining_seconds <= MAX_SECONDS.
-        """
-        return cls.MIN_SECONDS <= remaining_seconds <= cls.MAX_SECONDS
+from browser.executor import TimingGatekeeper
 
 
 class TestTimingGatekeeper:
@@ -74,3 +53,17 @@ class TestTimingGatekeeper:
     def test_negative_seconds_rejected(self):
         assert TimingGatekeeper.is_within_window(-1) is False
         assert TimingGatekeeper.is_within_window(-10) is False
+
+    # === Dynamic configuration ===
+    def test_configure_custom_boundaries(self):
+        """Verify that TimingGatekeeper.configure updates boundaries."""
+        orig_min = TimingGatekeeper.MIN_SECONDS
+        orig_max = TimingGatekeeper.MAX_SECONDS
+        try:
+            TimingGatekeeper.configure(5, 20)
+            assert TimingGatekeeper.is_within_window(5) is True
+            assert TimingGatekeeper.is_within_window(20) is True
+            assert TimingGatekeeper.is_within_window(4) is False
+            assert TimingGatekeeper.is_within_window(21) is False
+        finally:
+            TimingGatekeeper.configure(orig_min, orig_max)

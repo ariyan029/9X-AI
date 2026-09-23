@@ -15,8 +15,8 @@ from core.ladder import BetLadder, BET_LADDER, MAX_LADDER_INDEX
 
 
 # Expected ladder values from PROJECT_SPEC.md §2.3
-EXPECTED_LADDER = (1, 3, 7, 15, 30, 35, 75, 150, 350, 750, 1500, 3500, 7000, 15000, 35000, 75000)
-EXPECTED_TOTAL_RISK = 138_416
+EXPECTED_LADDER = (1, 3, 7, 15, 35, 75, 150, 350, 750, 1500, 3500, 7500, 15000, 35000, 75000)
+EXPECTED_TOTAL_RISK = 138_886
 
 
 class TestLadderConstants:
@@ -43,18 +43,17 @@ class TestGetStake:
         (1, 3),
         (2, 7),
         (3, 15),
-        (4, 30),
-        (5, 35),
-        (6, 75),
-        (7, 150),
-        (8, 350),
-        (9, 750),
-        (10, 1500),
-        (11, 3500),
-        (12, 7000),
-        (13, 15000),
-        (14, 35000),
-        (15, 75000),
+        (4, 35),
+        (5, 75),
+        (6, 150),
+        (7, 350),
+        (8, 750),
+        (9, 1500),
+        (10, 3500),
+        (11, 7000),
+        (12, 15000),
+        (13, 35000),
+        (14, 75000),
     ])
     def test_stake_at_each_step(self, index, expected_stake):
         assert BetLadder.get_stake(index) == expected_stake
@@ -65,7 +64,7 @@ class TestGetStake:
 
     def test_index_16_raises(self):
         with pytest.raises(IndexError):
-            BetLadder.get_stake(16)
+            BetLadder.get_stake(15)
 
     def test_large_index_raises(self):
         with pytest.raises(IndexError):

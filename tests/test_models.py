@@ -168,3 +168,22 @@ class TestStreakTracker:
         tracker.reset()
         assert tracker.current_type is None
         assert tracker.count == 0
+
+
+class TestCycleContext:
+    """Test CycleContext dataclass and properties."""
+
+    def test_cycle_context_defaults(self):
+        ctx = CycleContext(target=GameOutcome.BIG)
+        assert ctx.target == GameOutcome.BIG
+        assert ctx.ladder_index == 0
+        assert ctx.streak_origin == GameOutcome.BIG
+        assert ctx.is_exhausted is False
+
+    def test_is_exhausted_at_15(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=15)
+        assert ctx.is_exhausted is True
+
+    def test_is_exhausted_above_15(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=16)
+        assert ctx.is_exhausted is True
