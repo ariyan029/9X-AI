@@ -46,3 +46,50 @@ def test_observer_processed_history_cap():
     # Should have capped to at most 100 elements when exceeding 200
     assert len(observer._processed_round_ids) <= 150
     assert "249" in observer._processed_round_ids
+
+
+import pytest
+from unittest.mock import AsyncMock
+
+
+@pytest.mark.asyncio
+async def test_observer_get_countdown_seconds():
+    selectors = AppSelectors()
+    observer = DomObserver(selectors)
+
+    # Test mm:ss format
+    observer._query_text = AsyncMock(return_value="00:25")
+    assert await observer.get_countdown_seconds(None) == 25
+
+    observer._query_text = AsyncMock(return_value="0:09")
+    assert await observer.get_countdown_seconds(None) == 9
+
+    observer._query_text = AsyncMock(return_value="00:00")
+    assert await observer.get_countdown_seconds(None) == 0
+
+    # Test plain seconds format
+    observer._query_text = AsyncMock(return_value="18")
+    assert await observer.get_countdown_seconds(None) == 18
+
+    # Test out-of-bounds (> 60s)
+    observer._query_text = AsyncMock(return_value="02:15")
+    assert await observer.get_countdown_seconds(None) is None
+
+
+@pytest.mark.asyncio
+async def test_observer_get_current_round_id():
+    selectors = AppSelectors()
+    observer = DomObserver(selectors)
+
+    # Standard long ID
+    observer._query_text = AsyncMock(return_value="Issue: 2026092400123")
+    assert await observer.get_current_round_id(None) == "2026092400123"
+
+    # Short 4-digit ID
+    observer._query_text = AsyncMock(return_value="No. 1001")
+    assert await observer.get_current_round_id(None) == "1001"
+
+    # No digits
+    observer._query_text = AsyncMock(return_value="Pending...")
+    assert await observer.get_current_round_id(None) is None
+

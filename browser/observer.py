@@ -100,15 +100,14 @@ class DomObserver:
         """
         Extract the current active round ID from the DOM.
         
-        Validates that the round ID matches the expected digit pattern.
+        Validates that the round ID contains digits (supports 3-24 digit IDs).
         
         Returns:
             Round ID string, or None if not found/invalid.
         """
         text = await self._query_text(page, self.selectors.current_round_id)
         if text:
-            # Extract digit sequence from the text
-            match = re.search(r"\d{8,16}", text)
+            match = re.search(r"\d{3,24}", text) or re.search(r"\d+", text)
             if match:
                 return match.group(0)
         return None
@@ -117,18 +116,34 @@ class DomObserver:
         """
         Extract the remaining countdown seconds from the DOM.
         
+        Handles both mm:ss (e.g., "00:25", "0:25") and plain seconds (e.g., "25").
+        
         Returns:
-            Integer seconds remaining (0-30), or None if not parseable.
+            Integer seconds remaining (0-60), or None if not parseable.
         """
         text = await self._query_text(
             page, self.selectors.countdown_timer_seconds, timeout_ms=1000
         )
         if text:
-            match = re.search(r"\d+", text)
-            if match:
-                seconds = int(match.group(0))
-                if 0 <= seconds <= 30:
-                    return seconds
+            parts = re.findall(r"\d+", text)
+            if len(parts) >= 2:
+                # Format: mm:ss (e.g. "00:25" or "0:15")
+                try:
+                    minutes = int(parts[0])
+                    seconds = int(parts[1])
+                    total = minutes * 60 + seconds
+                    if 0 <= total <= 60:
+                        return total
+                except ValueError:
+                    pass
+            elif len(parts) == 1:
+                # Format: ss (e.g. "25")
+                try:
+                    seconds = int(parts[0])
+                    if 0 <= seconds <= 60:
+                        return seconds
+                except ValueError:
+                    pass
         return None
 
     async def get_latest_history(
@@ -138,7 +153,8 @@ class DomObserver:
         Extract the most recent game history from the DOM.
         
         Parses the history table/list rows to build a list of
-        RoundResolution objects.
+        RoundResolution objects. Supports extracting outcome from
+        result numbers (0-9) or outcome labels (Big/Small).
         
         Args:
             page: Playwright page instance.
@@ -167,32 +183,50 @@ class DomObserver:
                     )
                     if not round_id_text:
                         continue
-                    round_id_match = re.search(r"\d{8,16}", round_id_text.strip())
+                    round_id_match = re.search(r"\d{3,24}", round_id_text.strip()) or re.search(r"\d+", round_id_text.strip())
                     if not round_id_match:
                         continue
                     round_id = round_id_match.group(0)
 
-                    # Extract result number
-                    number_el = await row.query_selector(
-                        self.selectors.history_row_result_number.css
-                    )
-                    number_text = (
-                        await number_el.text_content() if number_el else None
-                    )
-                    if not number_text:
-                        continue
-                    number_match = re.search(r"\d", number_text.strip())
-                    if not number_match:
-                        continue
-                    result_number = int(number_match.group(0))
+                    result_number = None
+                    outcome = None
 
-                    # Derive outcome from number
-                    outcome = GameOutcome.from_number(result_number)
+                    # Strategy A: Extract from result number element (0-9)
+                    if self.selectors.history_row_result_number:
+                        number_el = await row.query_selector(
+                            self.selectors.history_row_result_number.css
+                        )
+                        if number_el:
+                            number_text = await number_el.text_content()
+                            if number_text:
+                                number_match = re.search(r"\d", number_text.strip())
+                                if number_match:
+                                    result_number = int(number_match.group(0))
+                                    outcome = GameOutcome.from_number(result_number)
+
+                    # Strategy B: If outcome not derived from number, check outcome column/badge
+                    if outcome is None and self.selectors.history_row_result_outcome:
+                        outcome_el = await row.query_selector(
+                            self.selectors.history_row_result_outcome.css
+                        )
+                        if outcome_el:
+                            outcome_text = await outcome_el.text_content()
+                            if outcome_text:
+                                text_lower = outcome_text.strip().lower()
+                                if "big" in text_lower or text_lower == "b":
+                                    outcome = GameOutcome.BIG
+                                    result_number = 7
+                                elif "small" in text_lower or text_lower == "s":
+                                    outcome = GameOutcome.SMALL
+                                    result_number = 2
+
+                    if outcome is None:
+                        continue
 
                     results.append(
                         RoundResolution(
                             round_id=round_id,
-                            result_number=result_number,
+                            result_number=result_number if result_number is not None else (7 if outcome == GameOutcome.BIG else 2),
                             outcome=outcome,
                         )
                     )

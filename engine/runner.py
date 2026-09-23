@@ -64,6 +64,7 @@ class OrchestratorRunner:
         # Pending bet order from state machine
         self._pending_order: Optional[BetOrder] = None
         self._last_snapshot_round_id: Optional[str] = None
+        self._last_bet_round_id: Optional[str] = None
 
     async def run(self, page):
         """
@@ -173,34 +174,52 @@ class OrchestratorRunner:
         
         Conditions:
         1. Timing window is valid (10s ≤ T ≤ 25s)
-        2. Balance is sufficient
-        3. Not in dry-run mode (or simulate only)
+        2. No duplicate bet already placed on this round
+        3. Balance is sufficient (or warning logged in dry-run)
+        4. Not in dry-run mode (or simulate only)
         """
         countdown = snapshot.countdown_seconds
+
+        # Idempotency guard: prevent double-betting on the same round
+        if snapshot.round_id and self._last_bet_round_id == snapshot.round_id:
+            logger.debug(
+                f"Bet already placed on round {snapshot.round_id}. Suppressing duplicate."
+            )
+            self._pending_order = None
+            return
 
         # Check timing window
         if not TimingGatekeeper.is_within_window(countdown):
             if countdown is not None and countdown < TimingGatekeeper.MIN_SECONDS:
-                logger.debug(
+                logger.warning(
                     f"Timing lockout: T={countdown}s < {TimingGatekeeper.MIN_SECONDS}s. "
-                    "Suppressing bet for this round."
+                    f"Missed betting window for round {snapshot.round_id or 'active'}. "
+                    "Discarding stale pending order."
                 )
-                # Don't clear the pending order — it may be valid for next window
+                self._pending_order = None
             return
 
         # Check balance
         balance = await self.executor.get_wallet_balance(page)
         if balance is not None:
             if not self.balance_breaker.can_afford(balance, self._pending_order.amount):
-                self.state_machine.trigger_halt(
-                    f"Insufficient balance: {balance:.2f} < {self._pending_order.amount}"
-                )
-                self._pending_order = None
-                return
+                if self.dry_run:
+                    logger.warning(
+                        f"[DRY-RUN] Low balance: {balance:.2f} < {self._pending_order.amount}. "
+                        "Continuing dry-run simulation without HALT."
+                    )
+                else:
+                    self.state_machine.trigger_halt(
+                        f"Insufficient balance: {balance:.2f} < {self._pending_order.amount}"
+                    )
+                    self._pending_order = None
+                    return
 
         # Execute or simulate
         order = self._pending_order
         self._pending_order = None
+        if snapshot.round_id:
+            self._last_bet_round_id = snapshot.round_id
 
         if self.dry_run:
             logger.info(
