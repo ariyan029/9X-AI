@@ -186,56 +186,40 @@ TOTAL                            1545    365    76%
 | **2026-09-24 (Session 3)** | Antigravity Agent | **15-Step Progression Ladder Optimization & Platform-wide Synchronization:**<br>- Updated [core/ladder.py](file:///d:/9X-AI/core/ladder.py) with user's optimized 15-step progression tuple: `(1, 3, 7, 15, 35, 75, 150, 350, 750, 1500, 3500, 7500, 15000, 35000, 75000)`, total risk 138,886 units.<br>- Updated [core/models.py](file:///d:/9X-AI/core/models.py) validating `ladder_index` 0-14 and `is_exhausted >= 14`.<br>- Updated [tests/test_ladder.py](file:///d:/9X-AI/tests/test_ladder.py) fixing step 11 typo (7500), 15-step bounds, and all-positive net profits table.<br>- Updated [tests/test_models.py](file:///d:/9X-AI/tests/test_models.py) and [tests/test_state_machine.py](file:///d:/9X-AI/tests/test_state_machine.py) for 15-step loss sequences and step 14 exhaustion.<br>- Updated [README.md](file:///d:/9X-AI/README.md) ladder tables and rules. All 199 unit tests passing with 100% green status. |
 | **2026-09-24 (Session 4)** | Antigravity Agent | **Pre-Flight Resilience Improvements & Dry-Run Readiness:**<br>- Increased `MAX_DESYNC_RETRIES` from 3 to 20 (5.0-second tolerance at 250ms polling) in [config/settings.py](file:///d:/9X-AI/config/settings.py) and [.env.example](file:///d:/9X-AI/.env.example).<br>- Implemented integer/numeric round ID comparison and rolling history deduplication in [browser/observer.py](file:///d:/9X-AI/browser/observer.py) and [core/state_machine.py](file:///d:/9X-AI/core/state_machine.py).<br>- Added 3-second DOM/SPA mount settle delay in [main.py](file:///d:/9X-AI/main.py) (`cmd_run`).<br>- Created test suite [tests/test_observer.py](file:///d:/9X-AI/tests/test_observer.py) and added rollover test to [tests/test_state_machine.py](file:///d:/9X-AI/tests/test_state_machine.py).<br>- **203 / 203 unit tests passing (100%)** in 1.06s; platform coverage reached 72%. |
 | **2026-09-24 (Session 5)** | Antigravity Agent | **Telemetry Robustness, Double-Bet Prevention & High Test Coverage:**<br>- Upgraded timer parser in [browser/observer.py](file:///d:/9X-AI/browser/observer.py) to support `mm:ss` (`"00:25"`) and `ss` (`"25"`).<br>- Added dual-strategy outcome scraping in [browser/observer.py](file:///d:/9X-AI/browser/observer.py) supporting numbers and text outcome badges.<br>- Added double-bet prevention guard and stale order cleanup on timing lockout in [engine/runner.py](file:///d:/9X-AI/engine/runner.py).<br>- Handled low balance in dry run non-fatally.<br>- Created [tests/test_runner.py](file:///d:/9X-AI/tests/test_runner.py) and expanded [tests/test_observer.py](file:///d:/9X-AI/tests/test_observer.py). **208 / 208 unit tests passing (100%)**, coverage reached **76%**.<br>- Successfully installed Playwright Chromium browser binaries (`chromium-1243`, `ffmpeg`, `chrome-headless-shell`). |
+| **2026-09-24 (Session 6)** | Antigravity Agent | **Target Route Calibration, Live Selector Resolution & Ingestion Verification:**<br>- Diagnosed live selector timeout: identified that `BASE_URL` pointed to root homepage (`/#/`) rather than the 30-second WinGo lottery view, causing modal popup interception and element absence.<br>- Updated [.env](file:///d:/9X-AI/.env) with exact direct URL: `https://www.veergame41.com/#/home/AllLotteryGames/WinGo?typeId=30`.<br>- Extracted live Vue/Vant DOM selectors and updated [config/selectors.json](file:///d:/9X-AI/config/selectors.json) (`.TimeLeft__C-id`, `.TimeLeft__C-time`, `.GameRecord__C-body .van-row`, `.Betting__C-foot-b`, `.Betting__C-foot-s`, `.Wallet__C-balance-l1`, `.Betting__Popup-foot-s`).<br>- Enhanced [main.py](file:///d:/9X-AI/main.py) `cmd_test_selectors` to dismiss initial modals, mount the betting dialog to verify `confirm_bet_button`, and cleanly dismiss it.<br>- Added UTF-8 stdout reconfiguration in [main.py](file:///d:/9X-AI/main.py) for clean currency symbol rendering (`₹`).<br>- Validated live selector test with **7/7 selectors FOUND (100% green)**.<br>- Validated live telemetry pipeline ([DomObserver](file:///d:/9X-AI/browser/observer.py) & [ActionExecutor](file:///d:/9X-AI/browser/executor.py)): accurately captured active round ID, remaining seconds, wallet balance, and full 5-round outcome history.<br>- All unit tests passing: **208 / 208 passed (100%)**. |
 
 ---
 
 ## 7. Immediate Next Steps & Actionable Guidance
 
-With all pre-flight resilience improvements implemented and tested, follow this step-by-step procedure to execute the dry run:
+The live target selectors and telemetry pipeline are now fully calibrated and verified against the live game platform. Follow these exact steps:
 
-### Step 1: Environment File Configuration
-- [ ] Ensure `.env` exists and contains your target platform's URL:
-  ```powershell
-  if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-  ```
-- [ ] Open `.env` in your editor and verify:
-  ```ini
-  BASE_URL="https://your-game-platform-url.com"
-  HEADLESS=false
-  MAX_DESYNC_RETRIES=20
-  ```
+### Step 1: Re-Verify DOM Selectors
+Run the selector test to see all 7 elements reporting `FOUND` in green:
+```powershell
+.\venv\Scripts\python main.py --test-selectors
+```
+*Expected Result:*
+- `current_round_id: FOUND`
+- `countdown_timer_seconds: FOUND`
+- `history_table_rows: FOUND`
+- `bet_button_big: FOUND`
+- `bet_button_small: FOUND`
+- `wallet_balance_display: FOUND`
+- `confirm_bet_button: FOUND`
+- `Selector Results: 7/7 found successfully.`
+- Press `[Enter]` to close the browser.
 
-### Step 2: One-Time Interactive Authentication (`--login`)
-- [ ] Launch the browser session to authenticate:
-  ```powershell
-  .\venv\Scripts\python main.py --login
-  ```
-- [ ] A Chromium window will open:
-  - Manually log into your account, complete any 2FA/CAPTCHA challenges, and navigate directly to the 30-second prediction game page.
-  - Return to your terminal and press `[Enter]`.
-  - The session cookies and localStorage will persist in the `user_data/` folder for subsequent automated runs.
-
-### Step 3: DOM Selector Calibration (`--test-selectors`)
-- [ ] Validate that the bot's selectors in `config/selectors.json` match the live game DOM elements:
-  ```powershell
-  .\venv\Scripts\python main.py --test-selectors
-  ```
-- [ ] Verify that every key reports `FOUND` in green. If any element reports `NOT FOUND`:
-  - Open DevTools (`F12`) on the target page.
-  - Inspect the element (Round ID, Timer, History rows, Big button, Small button, Chips).
-  - Update the CSS selector or XPath in [config/selectors.json](file:///d:/9X-AI/config/selectors.json).
-  - Re-run `.\venv\Scripts\python main.py --test-selectors` until all pass.
-
-### Step 4: Execute Live Dry Run (`--dry-run`)
-- [ ] Start the bot in simulation mode:
-  ```powershell
-  .\venv\Scripts\python main.py --dry-run
-  ```
-- [ ] Monitor the live console output and audit logs in `logs/audit_*.log`:
-  - Observe 3 consecutive identical outcomes trigger an opposite bet recommendation.
-  - Verify that the timing window gatekeeper logs `VALID` only between $T=25\text{s}$ and $T=10\text{s}$.
-  - Verify that `DRY RUN: Bet order simulated` is logged without placing any real money.
-  - Press `Ctrl+C` at any time to gracefully terminate the bot.
+### Step 2: Launch Paper Trading Dry Run (`--dry-run`)
+Execute the bot in simulation mode without risking any capital:
+```powershell
+.\venv\Scripts\python main.py --dry-run
+```
+- Observe the bot monitor real rounds in real-time.
+- Watch the streak detector: when 3 consecutive identical outcomes occur (e.g. Big, Big, Big), verify that it queues the opposite bet (Small) at Step 0 (Stake: 1 unit).
+- Verify the timing gatekeeper approves execution within the $[10\text{s}, 25\text{s}]$ window.
+- Verify simulation logs confirm simulated bets without placing actual orders.
+- Press `Ctrl+C` whenever you wish to stop the run.
 
 ---
 
@@ -246,3 +230,4 @@ Whenever work is performed on this repository:
 2. **Update Section 4 (Test Suite Execution):** Run `pytest` and refresh test counts/coverage metrics.
 3. **Log the Work in Section 6 (Work Log):** Add a new entry with date, author, description, and affected files.
 4. **Update Section 7 (Next Steps):** Check off completed tasks and promote newly identified priorities.
+

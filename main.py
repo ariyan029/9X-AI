@@ -24,6 +24,10 @@ from utils.logger import setup_logger
 from utils.circuit_breaker import EmergencyKillSwitch
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
+
 # Global kill switch for signal handling
 _kill_switch = EmergencyKillSwitch()
 
@@ -137,6 +141,18 @@ async def cmd_test_selectors(settings: Settings):
         # Wait a moment for dynamic content to load
         await asyncio.sleep(3)
         
+        # Dismiss any announcement dialog if present
+        try:
+            dialog_btn = await page.wait_for_selector(
+                "button.announcement-dialog__button, .van-dialog__confirm",
+                timeout=1500,
+            )
+            if dialog_btn:
+                await dialog_btn.click()
+                await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
         # Test each selector
         selector_map = {
             "current_round_id": selectors.current_round_id,
@@ -144,23 +160,45 @@ async def cmd_test_selectors(settings: Settings):
             "history_table_rows": selectors.history_table_rows,
             "bet_button_big": selectors.bet_button_big,
             "bet_button_small": selectors.bet_button_small,
-            "confirm_bet_button": selectors.confirm_bet_button,
             "wallet_balance_display": selectors.wallet_balance_display,
+            "confirm_bet_button": selectors.confirm_bet_button,
         }
         
         results = {}
         for name, selector in selector_map.items():
             try:
+                # If testing confirm_bet_button, mount betting popup if not yet attached
+                if name == "confirm_bet_button":
+                    element = await page.query_selector(selector.css)
+                    if not element and selectors.bet_button_big:
+                        big_btn = await page.query_selector(selectors.bet_button_big.css)
+                        if big_btn:
+                            await big_btn.click()
+                            await asyncio.sleep(0.5)
+
                 element = await page.wait_for_selector(
-                    selector.css, timeout=3000, state="attached"
+                    selector.css, timeout=4000, state="attached"
                 )
                 if element:
                     text = await element.text_content()
-                    results[name] = ("✅ FOUND", text.strip() if text else "(empty)")
-                    logger.success(f"  {name}: FOUND → '{text.strip() if text else ''}'")
+                    cleaned_text = text.strip() if text else "(empty)"
+                    results[name] = ("✅ FOUND", cleaned_text)
+                    logger.success(f"  {name}: FOUND → '{cleaned_text}'")
                 else:
                     results[name] = ("❌ NOT FOUND", "")
                     logger.error(f"  {name}: NOT FOUND (CSS: {selector.css})")
+
+                # If we just tested confirm_bet_button, safely dismiss the popup
+                if name == "confirm_bet_button":
+                    cancel_btn = await page.query_selector(
+                        ".Betting__Popup-foot-c, div:has-text('Cancel')"
+                    )
+                    if cancel_btn:
+                        await cancel_btn.click()
+                    else:
+                        await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+
             except Exception:
                 results[name] = ("❌ TIMEOUT", "")
                 logger.error(f"  {name}: TIMEOUT (CSS: {selector.css})")

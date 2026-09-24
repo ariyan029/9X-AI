@@ -15,7 +15,7 @@ class TestSettings:
     """Test suite for application Settings."""
 
     def test_default_settings(self):
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.BASE_URL == "https://example-game.com"
         assert settings.HEADLESS is False
         assert settings.MIN_TIMING_WINDOW_SEC == 10

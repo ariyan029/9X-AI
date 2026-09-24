@@ -1,62 +1,62 @@
 {
   "current_round_id": {
-    "css": "div[class*='period-number'], span.issue-num, [data-testid='round-id']",
-    "xpath": "//div[contains(@class, 'period') or contains(@class, 'issue')]",
+    "css": ".TimeLeft__C-id, div[class*='TimeLeft__C-id']",
+    "xpath": "//div[contains(@class, 'TimeLeft__C-id')]",
     "description": "Unique round identifier for the active cycle"
   },
   "countdown_timer_seconds": {
-    "css": "div.countdown-sec, div[class*='timer'] span:last-child, .clock-seconds",
-    "xpath": "//div[contains(@class, 'countdown') or contains(@class, 'timer')]//span[last()]",
+    "css": ".TimeLeft__C-time, div[class*='TimeLeft__C-time']",
+    "xpath": "//div[contains(@class, 'TimeLeft__C-time')]",
     "description": "Countdown timer displaying seconds remaining (00 to 30)"
   },
   "history_table_rows": {
-    "css": "table.history-table tbody tr, div.game-history-list > div.row",
-    "xpath": "//table[contains(@class, 'history')]//tr[td]",
+    "css": ".GameRecord__C-body .van-row",
+    "xpath": "//div[contains(@class, 'GameRecord__C-body')]//div[contains(@class, 'van-row')]",
     "description": "List of finished round result rows"
   },
   "history_row_round_id": {
-    "css": "td.col-issue, .row-issue",
-    "xpath": ".//td[1]",
+    "css": ".van-col--9, div:first-child",
+    "xpath": ".//div[1]",
     "description": "Round ID column within a history row"
   },
   "history_row_result_number": {
-    "css": "td.col-number span, .result-number-ball",
-    "xpath": ".//td[2]//span",
+    "css": ".GameRecord__C-body-num",
+    "xpath": ".//div[contains(@class, 'GameRecord__C-body-num')]",
     "description": "Result number (0-9)"
   },
   "history_row_result_outcome": {
-    "css": "td.col-size span, .tag-big, .tag-small",
-    "xpath": ".//td[contains(@class, 'size') or contains(@class, 'type')]",
+    "css": ".van-col:nth-child(3) span",
+    "xpath": ".//div[3]//span",
     "description": "Label indicating 'Big' or 'Small'"
   },
   "bet_button_big": {
-    "css": "button.btn-big, div[data-value='big'], .bet-option-big",
-    "xpath": "//button[contains(text(), 'Big') or @data-type='big']",
+    "css": ".Betting__C-foot-b",
+    "xpath": "//div[contains(@class, 'Betting__C-foot-b')]",
     "description": "Selection button for Big outcome"
   },
   "bet_button_small": {
-    "css": "button.btn-small, div[data-value='small'], .bet-option-small",
-    "xpath": "//button[contains(text(), 'Small') or @data-type='small']",
+    "css": ".Betting__C-foot-s",
+    "xpath": "//div[contains(@class, 'Betting__C-foot-s')]",
     "description": "Selection button for Small outcome"
   },
   "amount_input_field": {
-    "css": "input.bet-amount-input, input[type='number'].amount",
-    "xpath": "//input[contains(@class, 'amount') or @placeholder='Amount']",
+    "css": "input.van-field__control, .Betting__Popup-input input",
+    "xpath": "//input[contains(@class, 'van-field__control')]",
     "description": "Input field to enter custom bet stake"
   },
   "confirm_bet_button": {
-    "css": "button.btn-confirm-bet, button[class*='submit-bet'], .bet-confirm",
-    "xpath": "//button[contains(text(), 'Confirm') or contains(text(), 'Bet')]",
+    "css": ".Betting__Popup-foot-s, div[class*='Betting__Popup-foot-s']",
+    "xpath": "//div[contains(@class, 'Betting__Popup-foot-s')]",
     "description": "Submission button to commit bet order"
   },
   "wallet_balance_display": {
-    "css": "span.balance-amount, div.user-balance, .wallet-num",
-    "xpath": "//span[contains(@class, 'balance')]",
+    "css": ".Wallet__C-balance-l1, div[class*='Wallet__C-balance-l1']",
+    "xpath": "//div[contains(@class, 'Wallet__C-balance-l1')]",
     "description": "Real-time user account balance for risk validation"
   },
   "bet_success_toast": {
-    "css": "div.toast-success, div.van-toast--success, div[role='alert'].success",
-    "xpath": "//div[contains(@class, 'toast') and contains(@class, 'success')]",
+    "css": "div.van-toast, div[class*='toast']",
+    "xpath": "//div[contains(@class, 'van-toast')]",
     "description": "Notification element indicating successful bet placement"
   },
   "bet_error_toast": {
@@ -65,3 +65,4 @@
     "description": "Notification element indicating rejected bet"
   }
 }
+

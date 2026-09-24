@@ -126,8 +126,18 @@ class DomObserver:
         )
         if text:
             parts = re.findall(r"\d+", text)
-            if len(parts) >= 2:
-                # Format: mm:ss (e.g. "00:25" or "0:15")
+            if len(parts) == 4:
+                # Format: 4 individual digits ['0', '0', '1', '8'] -> 00:18
+                try:
+                    minutes = int(parts[0]) * 10 + int(parts[1])
+                    seconds = int(parts[2]) * 10 + int(parts[3])
+                    total = minutes * 60 + seconds
+                    if 0 <= total <= 60:
+                        return total
+                except ValueError:
+                    pass
+            elif len(parts) >= 2:
+                # Format: mm:ss (e.g. ['00', '25'] or ['0', '15'])
                 try:
                     minutes = int(parts[0])
                     seconds = int(parts[1])
@@ -137,7 +147,7 @@ class DomObserver:
                 except ValueError:
                     pass
             elif len(parts) == 1:
-                # Format: ss (e.g. "25")
+                # Format: ss (e.g. ['25'])
                 try:
                     seconds = int(parts[0])
                     if 0 <= seconds <= 60:
