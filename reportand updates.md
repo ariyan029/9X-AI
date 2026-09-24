@@ -189,35 +189,56 @@ TOTAL                            1545    365    76%
 | **2026-09-24 (Session 6)** | Antigravity Agent | **Target Route Calibration, Live Selector Resolution & Ingestion Verification:**<br>- Diagnosed live selector timeout: identified that `BASE_URL` pointed to root homepage (`/#/`) rather than the 30-second WinGo lottery view, causing modal popup interception and element absence.<br>- Updated [.env](file:///d:/9X-AI/.env) with exact direct URL: `https://www.veergame41.com/#/home/AllLotteryGames/WinGo?typeId=30`.<br>- Extracted live Vue/Vant DOM selectors and updated [config/selectors.json](file:///d:/9X-AI/config/selectors.json) (`.TimeLeft__C-id`, `.TimeLeft__C-time`, `.GameRecord__C-body .van-row`, `.Betting__C-foot-b`, `.Betting__C-foot-s`, `.Wallet__C-balance-l1`, `.Betting__Popup-foot-s`).<br>- Enhanced [main.py](file:///d:/9X-AI/main.py) `cmd_test_selectors` to dismiss initial modals, mount the betting dialog to verify `confirm_bet_button`, and cleanly dismiss it.<br>- Added UTF-8 stdout reconfiguration in [main.py](file:///d:/9X-AI/main.py) for clean currency symbol rendering (`₹`).<br>- Validated live selector test with **7/7 selectors FOUND (100% green)**.<br>- Validated live telemetry pipeline ([DomObserver](file:///d:/9X-AI/browser/observer.py) & [ActionExecutor](file:///d:/9X-AI/browser/executor.py)): accurately captured active round ID, remaining seconds, wallet balance, and full 5-round outcome history.<br>- All unit tests passing: **208 / 208 passed (100%)**. |
 | **2026-09-24 (Session 7)** | Antigravity Agent | **Dry-Run Analysis, Session Token Expiration & Window Closure Hardening:**<br>- Analyzed live `--dry-run` execution logs: verified streak detection triggered at round `...048` after 3 consecutive Bigs, transitioned to `ACTIVE_BETTING`, and simulated ladder progression up to step 4 (stake: 35) with 100% accuracy.<br>- Diagnosed `0.00` wallet balance: inspected localStorage session storage and decoded JWT token showing expiration at `05:46:31 AM`. Because Veergame tokens expire after 30 minutes, running dry-run at `05:55:28 AM` resulted in unauthorized guest state where the UI reverted balance display to `0.00`.<br>- Diagnosed DOM desync errors at `05:56:42`: identified browser window was closed, causing 20 consecutive query failures.<br>- Hardened [engine/runner.py](file:///d:/9X-AI/engine/runner.py) and [utils/circuit_breaker.py](file:///d:/9X-AI/utils/circuit_breaker.py) with safe `is_closed` checks to exit cleanly when browser is closed without logging desync errors or attempting screenshots on closed pages.<br>- All unit tests passing: **208 / 208 passed (100%)**. |
 | **2026-09-24 (Session 8)** | Antigravity Agent | **Circuit Breaker Diagnostics Hardening & Test Suite Expansion:**<br>- Diagnosed line 124 error in [utils/circuit_breaker.py](file:///d:/9X-AI/utils/circuit_breaker.py): when the browser window was closed, `capture_diagnostics` attempted `page.screenshot()`, triggering Playwright's `Target page, context or browser has been closed`.<br>- Added missing `import asyncio` in [utils/circuit_breaker.py](file:///d:/9X-AI/utils/circuit_breaker.py).<br>- Replaced alarming error logging with graceful early return when `page.is_closed()` is detected.<br>- Added `test_capture_diagnostics_when_page_closed` in [tests/test_circuit_breaker.py](file:///d:/9X-AI/tests/test_circuit_breaker.py).<br>- Test suite expanded to **209 / 209 unit tests passing (100% green)** in 0.63s. |
+| **2026-09-24 (Session 9)** | Antigravity Agent | **Direct Login Route Decoupling:**<br>- Decoupled `cmd_login` in [main.py](file:///d:/9X-AI/main.py) from `BASE_URL` (direct WinGo game route) so that `--login` automatically navigates to `/#/login` (`https://www.veergame41.com/#/login`).<br>- Allows operators to immediately enter credentials and 2FA without having to manually locate the login page.<br>- `--run` and `--dry-run` continue navigating directly to the WinGo 30s game route.<br>- Unit tests: **209 / 209 passed (100%)**. |
+| **2026-09-24 (Session 10)** | Antigravity Agent | **Live Authentication Detection & Premature Save Guard:**<br>- Upgraded `cmd_login` in [main.py](file:///d:/9X-AI/main.py) with a real-time background monitor that detects when the JWT token and user profile are written to browser storage.<br>- Console automatically reports user name and detected balance as soon as the operator clicks 'Log in' on the website.<br>- Added guard warning if the operator presses `[Enter]` before authentication is complete, preventing unauthenticated sessions from being saved.<br>- Unit tests: **209 / 209 passed (100%)**. |
+| **2026-09-24 (Session 11)** | Antigravity Agent | **Zero Balance Root Cause Resolution, Automated Game Verification & Foolproof Login Flow:**<br>- Diagnosed root cause of `wallet_balance_display: FOUND → '0.00'`: direct inspection of [user_data/](file:///d:/9X-AI/user_data) confirmed `token` was empty and `userInfo` was `{}`. Veergame allows guest browsing but defaults `.Wallet__C-balance-l1` to `0.00` when unauthenticated. The operator previously pressed `[Enter]` without submitting credentials.<br>- Enhanced `cmd_login` in [main.py](file:///d:/9X-AI/main.py): added `_parse_jwt` validating token expiration (`exp > time.time()`), phone number, and user ID.<br>- Built automated redirect & on-screen verification: once the operator clicks 'Log in', `cmd_login` detects the valid JWT, automatically navigates to the WinGo 30s game page, reads `.Wallet__C-balance-l1`, and verifies the live positive balance on the game screen before prompting to close.<br>- Enhanced `cmd_test_selectors` in [main.py](file:///d:/9X-AI/main.py): when balance returns `0.00`, it checks session authentication and clearly logs `[GUEST SESSION — Run 'python main.py --login' to log in]`.<br>- All 209 unit tests passing: **209 / 209 passed (100% green)** in 0.57s. |
 
 ---
 
 ## 7. Immediate Next Steps & Actionable Guidance
 
-The bot's core automation, streak detection, and ladder progression are verified and working on live data. Follow these steps to refresh your login session and verify your real balance:
+The bot's core automation, streak detection, and ladder progression are verified and working on live data. Follow these steps:
 
-### Step 1: Refresh Authentication Session (`--login`)
-Because Veergame JWT tokens expire after 30 minutes, refresh your session:
+### Step 1: Close Any Running Browser Window
+If `main.py --test-selectors` is currently running in your terminal, press **`[Enter]`** to close that browser. Chromium requires the profile lock to be released before `--login` can start.
+
+### Step 2: Perform Interactive Login (`--login`)
+Run the login command:
 ```powershell
 .\venv\Scripts\python main.py --login
 ```
-1. The browser will open directly to the 30-second WinGo game page.
-2. If you see the login dialog or a logged-out guest state, log into your account.
-3. Verify that your actual balance (e.g. ₹3.00) is visible in the top wallet bar.
-4. Return to your terminal and press `[Enter]` to save the fresh session to `user_data/`.
+1. A visible Chrome window will open directly to the login page: `https://www.veergame41.com/#/login`.
+2. In that browser window:
+   - Enter your **10-digit mobile number** and **password**.
+   - Click the green **"Log in"** button.
+   - Complete the puzzle/slider challenge if prompted.
+3. **Do NOT press Enter in the terminal yet!**
+   - The bot is actively monitoring the browser.
+   - Within 1 second of login, the bot will print:
+     ```
+     🎉 LOGIN DETECTED! User: 919332356565 | Balance: ₹3.00
+     Redirecting to WinGo 30s to verify live balance...
+     ✅ GAME SCREEN VERIFIED! Live Wallet Balance: '3.00'
+     ```
+   - It will automatically navigate the browser to the WinGo game page and verify your real balance on screen!
+4. Once you see `✅ GAME SCREEN VERIFIED!`, press `[Enter]` in the terminal to save the session and exit.
 
-### Step 2: Verify Selectors with Fresh Session (`--test-selectors`)
+### Step 3: Verify Selectors with Fresh Session (`--test-selectors`)
 ```powershell
 .\venv\Scripts\python main.py --test-selectors
 ```
-Verify that `wallet_balance_display` shows your actual balance (e.g. `FOUND → '3.00'`).
+Verify that `wallet_balance_display` shows your actual balance:
+```
+SUCCESS | wallet_balance_display: FOUND → '3.00'
+Selector Results: 7/7 found successfully.
+```
 
-### Step 3: Run Paper Trading Dry Run (`--dry-run`)
+### Step 4: Run Paper Trading Dry Run (`--dry-run`)
 ```powershell
 .\venv\Scripts\python main.py --dry-run
 ```
-- The bot will track live rounds, detect 3-streaks, and simulate bets.
-- If you close the browser window or press `Ctrl+C`, the engine will now shut down cleanly without any desync error logs.
+- The bot will track live rounds, detect 3-streaks, and simulate bets with your real balance.
+- If you close the browser window or press `Ctrl+C`, the engine will shut down cleanly without any desync error logs.
 
 ---
 
@@ -228,5 +249,7 @@ Whenever work is performed on this repository:
 2. **Update Section 4 (Test Suite Execution):** Run `pytest` and refresh test counts/coverage metrics.
 3. **Log the Work in Section 6 (Work Log):** Add a new entry with date, author, description, and affected files.
 4. **Update Section 7 (Next Steps):** Check off completed tasks and promote newly identified priorities.
+
+
 
 

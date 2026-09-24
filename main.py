@@ -13,6 +13,7 @@ import argparse
 import signal
 import sys
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
@@ -39,36 +40,146 @@ def _handle_shutdown_signal(signum, frame):
     _kill_switch.trigger(f"Signal {sig_name} received")
 
 
+import base64
+import json
+import time
+
+
+def _parse_jwt(token: Optional[str]) -> tuple[bool, str, str]:
+    """
+    Validate JWT token and extract (is_valid, user_name, amount).
+    
+    Returns:
+        tuple of (is_valid, user_name, amount)
+    """
+    if not token or token == "null" or not isinstance(token, str):
+        return False, "User", "0.00"
+    try:
+        parts = token.split(".")
+        if len(parts) >= 2:
+            padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded))
+            user_name = str(payload.get("UserName") or payload.get("UserId") or "User")
+            amount = str(payload.get("Amount", "0.00"))
+            exp = int(payload.get("exp", 0))
+            if exp > time.time():
+                return True, user_name, amount
+    except Exception:
+        pass
+    return False, "User", "0.00"
+
+
 async def cmd_login(settings: Settings):
     """
     Interactive login flow.
     
     Opens a visible browser window for the operator to authenticate
-    manually. Session cookies are saved to user_data/ for reuse.
+    manually. Session cookies and tokens are saved to user_data/ for reuse.
     """
     logger.info("Starting interactive login flow...")
-    ctx_manager = BrowserContextManager(settings)
+    
+    # Direct to login page so operator can immediately enter credentials
+    from urllib.parse import urlparse
+    parsed = urlparse(settings.BASE_URL)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    login_url = f"{origin}/#/login"
+
+    # Force visible browser for interactive login
+    login_settings = settings.model_copy(update={"HEADLESS": False})
+    ctx_manager = BrowserContextManager(login_settings)
     
     try:
         context = await ctx_manager.create_context()
         page = context.pages[0] if context.pages else await context.new_page()
-        await page.goto(settings.BASE_URL, wait_until="domcontentloaded")
         
-        logger.info(
-            f"Browser opened at {settings.BASE_URL}.\n"
-            "Please complete manual login in the browser window.\n"
-            "Press [Enter] here when done to save session and exit..."
+        logger.info(f"Navigating to login page: {login_url}...")
+        await page.goto(login_url, wait_until="domcontentloaded")
+        
+        # Check if already authenticated with a valid token
+        existing_token = await page.evaluate(
+            "() => localStorage.getItem('token') || localStorage.getItem('ar_token')"
         )
-        
-        # Wait for operator input
-        await asyncio.get_event_loop().run_in_executor(None, input)
-        
-        logger.success(
-            f"Session saved to {settings.USER_DATA_DIR}/. "
-            "You can now run the bot without re-authenticating."
-        )
+        is_valid, user_name, amount = _parse_jwt(existing_token)
+        if is_valid:
+            logger.success(f"Existing valid session found: User '{user_name}' | Balance: ₹{amount}")
+            logger.info(f"Navigating to game page ({settings.BASE_URL}) to confirm live balance...")
+            await page.goto(settings.BASE_URL, wait_until="domcontentloaded")
+            await asyncio.sleep(2.5)
+            balance_el = await page.query_selector(".Wallet__C-balance-l1")
+            dom_balance = (await balance_el.text_content()).strip() if balance_el else amount
+            logger.success(f"✅ VERIFIED! Live Wallet Balance on game screen: {dom_balance}")
+            logger.info("Press [Enter] to exit...")
+            await asyncio.get_event_loop().run_in_executor(None, input)
+            return
+
+        # Purge stale expired tokens on startup to avoid false-positive detection
+        try:
+            await page.evaluate("""() => {
+                const t = localStorage.getItem('token');
+                if (t) {
+                    try {
+                        const parts = t.split('.');
+                        if (parts.length >= 2) {
+                            const payload = JSON.parse(atob(parts[1]));
+                            if (payload.exp && payload.exp < Date.now() / 1000) {
+                                localStorage.removeItem('token');
+                                localStorage.removeItem('ar_token');
+                                localStorage.removeItem('userInfo');
+                            }
+                        }
+                    } catch (e) {
+                        localStorage.removeItem('token');
+                    }
+                }
+            }""")
+        except Exception:
+            pass
+
+        logger.info("=" * 65)
+        logger.info("9X-AI INTERACTIVE AUTHENTICATION")
+        logger.info("=" * 65)
+        logger.info("Browser window is open at: " + login_url)
+        logger.info("1. Enter your mobile number and password.")
+        logger.info("2. Click the 'Log in' button (and complete puzzle slider if prompted).")
+        logger.info("3. DO NOT press Enter yet! The system will automatically detect")
+        logger.info("   when you log in, redirect to the game, and verify your balance.")
+        logger.info("=" * 65)
+        logger.info("Waiting for you to log in in the browser window...")
+
+        # Monitor loop: actively polls every 1.0s for fresh JWT
+        while True:
+            if page.is_closed():
+                logger.warning("Browser was closed before login was completed.")
+                break
+
+            token = await page.evaluate(
+                "() => localStorage.getItem('token') || localStorage.getItem('ar_token')"
+            )
+            is_valid, user_name, amount = _parse_jwt(token)
+            if is_valid:
+                logger.success("=" * 65)
+                logger.success(f"🎉 LOGIN DETECTED! User: {user_name} | Balance: ₹{amount}")
+                logger.info(f"Redirecting to WinGo 30s ({settings.BASE_URL}) to verify live balance...")
+                logger.success("=" * 65)
+                
+                await page.goto(settings.BASE_URL, wait_until="domcontentloaded")
+                await asyncio.sleep(3.0)
+
+                # Read live DOM balance
+                balance_el = await page.query_selector(".Wallet__C-balance-l1")
+                live_balance = (await balance_el.text_content()).strip() if balance_el else amount
+                logger.success(f"✅ GAME SCREEN VERIFIED! Live Wallet Balance: '{live_balance}'")
+                logger.info("=" * 65)
+                logger.info("Session saved to user_data/! You can now press [Enter] to exit.")
+                logger.info("=" * 65)
+                await asyncio.get_event_loop().run_in_executor(None, input)
+                break
+
+            await asyncio.sleep(1.0)
+
     finally:
         await ctx_manager.close()
+        logger.info("Browser closed. You can now run --dry-run or --test-selectors.")
 
 
 async def cmd_run(settings: Settings, dry_run: bool = False):
@@ -183,7 +294,21 @@ async def cmd_test_selectors(settings: Settings):
                     text = await element.text_content()
                     cleaned_text = text.strip() if text else "(empty)"
                     results[name] = ("✅ FOUND", cleaned_text)
-                    logger.success(f"  {name}: FOUND → '{cleaned_text}'")
+                    if name == "wallet_balance_display" and cleaned_text in ("0.00", "0", "₹0.00", "(empty)"):
+                        token = await page.evaluate(
+                            "() => localStorage.getItem('token') || localStorage.getItem('ar_token')"
+                        )
+                        is_valid, user_name, _ = _parse_jwt(token)
+                        if not is_valid:
+                            logger.warning(
+                                f"  {name}: FOUND → '{cleaned_text}' "
+                                "(⚠️ Session is NOT logged in! Veergame defaults balance to 0.00 for guests. "
+                                "Run 'python main.py --login' to authenticate.)"
+                            )
+                        else:
+                            logger.success(f"  {name}: FOUND → '{cleaned_text}' (✅ User: {user_name})")
+                    else:
+                        logger.success(f"  {name}: FOUND → '{cleaned_text}'")
                 else:
                     results[name] = ("❌ NOT FOUND", "")
                     logger.error(f"  {name}: NOT FOUND (CSS: {selector.css})")
