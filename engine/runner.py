@@ -82,6 +82,23 @@ class OrchestratorRunner:
 
         while not self.kill_switch.is_triggered:
             try:
+                # Check if browser window was closed by user
+                is_closed = False
+                try:
+                    res = getattr(page, "is_closed", None)
+                    if callable(res):
+                        val = res()
+                        if asyncio.iscoroutine(val):
+                            val.close()
+                        else:
+                            is_closed = bool(val)
+                except Exception:
+                    pass
+
+                if is_closed:
+                    logger.info("Browser window was closed. Exiting orchestrator cleanly...")
+                    break
+
                 # Check for HALT state
                 if self.state_machine.state == EngineState.HALT:
                     logger.critical("Engine is in HALT state. Stopping loop.")

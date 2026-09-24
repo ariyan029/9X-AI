@@ -6,6 +6,7 @@ emergency kill switch functionality. Each breaker can independently
 trigger an engine HALT.
 """
 
+import asyncio
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
@@ -110,18 +111,40 @@ class DesyncCircuitBreaker:
         desync_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        if page:
-            try:
-                screenshot_path = desync_dir / f"screenshot_{timestamp}.png"
-                await page.screenshot(path=str(screenshot_path))
-                logger.info(f"Diagnostic screenshot saved: {screenshot_path}")
+        if page is None:
+            return
 
-                dom_path = desync_dir / f"dom_snapshot_{timestamp}.html"
-                content = await page.content()
-                dom_path.write_text(content, encoding="utf-8")
-                logger.info(f"DOM snapshot saved: {dom_path}")
-            except Exception as e:
-                logger.error(f"Failed to capture diagnostics: {e}")
+        is_closed = False
+        try:
+            res = getattr(page, "is_closed", None)
+            if callable(res):
+                val = res()
+                if asyncio.iscoroutine(val):
+                    val.close()
+                else:
+                    is_closed = bool(val)
+        except Exception:
+            is_closed = True
+
+        if is_closed:
+            logger.info("Page is already closed; skipping diagnostic screenshot capture.")
+            return
+
+        try:
+            screenshot_path = desync_dir / f"screenshot_{timestamp}.png"
+            await page.screenshot(path=str(screenshot_path))
+            logger.info(f"Diagnostic screenshot saved: {screenshot_path}")
+
+            dom_path = desync_dir / f"dom_snapshot_{timestamp}.html"
+            content = await page.content()
+            dom_path.write_text(content, encoding="utf-8")
+            logger.info(f"DOM snapshot saved: {dom_path}")
+        except Exception as e:
+            err_str = str(e).lower()
+            if "closed" in err_str or "target" in err_str:
+                logger.info(f"Browser or page closed during diagnostic capture: {e}")
+            else:
+                logger.warning(f"Could not capture full diagnostics: {e}")
 
     @property
     def error_count(self) -> int:

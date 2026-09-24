@@ -108,6 +108,7 @@ class TestDesyncCircuitBreaker:
     async def test_capture_diagnostics_with_mock_page(self, tmp_path):
         breaker = DesyncCircuitBreaker(max_retries=3, log_dir=tmp_path)
         mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_page.screenshot = AsyncMock()
         mock_page.content = AsyncMock(return_value="<html><body>Mock DOM</body></html>")
 
@@ -121,10 +122,22 @@ class TestDesyncCircuitBreaker:
     async def test_capture_diagnostics_handles_page_exception(self, tmp_path):
         breaker = DesyncCircuitBreaker(max_retries=3, log_dir=tmp_path)
         mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=False)
         mock_page.screenshot = AsyncMock(side_effect=RuntimeError("Browser disconnected"))
 
         # Should catch exception internally and not crash
         await breaker.capture_diagnostics(page=mock_page)
+
+    @pytest.mark.asyncio
+    async def test_capture_diagnostics_when_page_closed(self, tmp_path):
+        breaker = DesyncCircuitBreaker(max_retries=3, log_dir=tmp_path)
+        mock_page = AsyncMock()
+        mock_page.is_closed = MagicMock(return_value=True)
+        mock_page.screenshot = AsyncMock()
+
+        # Should skip screenshot when page is closed
+        await breaker.capture_diagnostics(page=mock_page)
+        mock_page.screenshot.assert_not_called()
 
 
 class TestEmergencyKillSwitch:
