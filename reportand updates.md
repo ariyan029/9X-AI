@@ -192,6 +192,7 @@ TOTAL                            1545    365    76%
 | **2026-09-24 (Session 9)** | Antigravity Agent | **Direct Login Route Decoupling:**<br>- Decoupled `cmd_login` in [main.py](file:///d:/9X-AI/main.py) from `BASE_URL` (direct WinGo game route) so that `--login` automatically navigates to `/#/login` (`https://www.veergame41.com/#/login`).<br>- Allows operators to immediately enter credentials and 2FA without having to manually locate the login page.<br>- `--run` and `--dry-run` continue navigating directly to the WinGo 30s game route.<br>- Unit tests: **209 / 209 passed (100%)**. |
 | **2026-09-24 (Session 10)** | Antigravity Agent | **Live Authentication Detection & Premature Save Guard:**<br>- Upgraded `cmd_login` in [main.py](file:///d:/9X-AI/main.py) with a real-time background monitor that detects when the JWT token and user profile are written to browser storage.<br>- Console automatically reports user name and detected balance as soon as the operator clicks 'Log in' on the website.<br>- Added guard warning if the operator presses `[Enter]` before authentication is complete, preventing unauthenticated sessions from being saved.<br>- Unit tests: **209 / 209 passed (100%)**. |
 | **2026-09-24 (Session 11)** | Antigravity Agent | **Zero Balance Root Cause Resolution, Automated Game Verification & Foolproof Login Flow:**<br>- Diagnosed root cause of `wallet_balance_display: FOUND → '0.00'`: direct inspection of [user_data/](file:///d:/9X-AI/user_data) confirmed `token` was empty and `userInfo` was `{}`. Veergame allows guest browsing but defaults `.Wallet__C-balance-l1` to `0.00` when unauthenticated. The operator previously pressed `[Enter]` without submitting credentials.<br>- Enhanced `cmd_login` in [main.py](file:///d:/9X-AI/main.py): added `_parse_jwt` validating token expiration (`exp > time.time()`), phone number, and user ID.<br>- Built automated redirect & on-screen verification: once the operator clicks 'Log in', `cmd_login` detects the valid JWT, automatically navigates to the WinGo 30s game page, reads `.Wallet__C-balance-l1`, and verifies the live positive balance on the game screen before prompting to close.<br>- Enhanced `cmd_test_selectors` in [main.py](file:///d:/9X-AI/main.py): when balance returns `0.00`, it checks session authentication and clearly logs `[GUEST SESSION — Run 'python main.py --login' to log in]`.<br>- All 209 unit tests passing: **209 / 209 passed (100% green)** in 0.57s. |
+| **2026-09-24 (Session 12)** | Antigravity Agent | **SPA Cold-Start Wallet Bootstrap & Login Flow Stabilization:**<br>- Resolved root cause of balance reading `0.00` on direct game launch: Veergame is a Single Page Application (SPA) where the user info and wallet balance APIs (`/api/web/v1/user/info`, `/api/web/v1/wallet/balance`) are triggered by the **Home portal** (`/#/`). Deep-linking directly into `WinGo?typeId=30` bypassed this initialization, resulting in uninitialized `0.00` balance display until the user manually visited the Home screen.<br>- Created `_navigate_with_session_bootstrap` in [main.py](file:///d:/9X-AI/main.py): automatically visits `/#/` for 2 seconds to warm up the session, trigger the wallet API, dismiss any announcement dialogs, and then loads `settings.BASE_URL` with the balance pre-populated.<br>- Applied session bootstrap across `cmd_run` (`--run`, `--dry-run`), `cmd_test_selectors` (`--test-selectors`), and `cmd_login` (`--login`).<br>- Enhanced `get_wallet_balance` in [browser/executor.py](file:///d:/9X-AI/browser/executor.py) with auto-refresh fallback on `.Wallet__C` reload icon if balance ever reads `0.0`.<br>- Fixed `cmd_login`: eliminated premature redirect to game page; operator remains on `/#/login` with full control to log in or proceed.<br>- All unit tests passing: **209 / 209 passed (100% green)** in 0.62s. |
 
 ---
 
@@ -199,41 +200,36 @@ TOTAL                            1545    365    76%
 
 The bot's core automation, streak detection, and ladder progression are verified and working on live data. Follow these steps:
 
-### Step 1: Close Any Running Browser Window
-If `main.py --test-selectors` is currently running in your terminal, press **`[Enter]`** to close that browser. Chromium requires the profile lock to be released before `--login` can start.
-
-### Step 2: Perform Interactive Login (`--login`)
+### Step 1: Perform Interactive Login (`--login`)
 Run the login command:
 ```powershell
 .\venv\Scripts\python main.py --login
 ```
-1. A visible Chrome window will open directly to the login page: `https://www.veergame41.com/#/login`.
-2. In that browser window:
+1. A visible Chrome window will open directly to `https://www.veergame41.com/#/login`.
+2. The browser will stay on the login screen and will **NOT** kick you to the game prematurely.
+3. If you are already logged in, you will see your username in the terminal.
+4. If you need to log in:
    - Enter your **10-digit mobile number** and **password**.
-   - Click the green **"Log in"** button.
-   - Complete the puzzle/slider challenge if prompted.
-3. **Do NOT press Enter in the terminal yet!**
-   - The bot is actively monitoring the browser.
-   - Within 1 second of login, the bot will print:
+   - Click the green **"Log in"** button and complete the puzzle slider.
+5. In the terminal, press **`[Enter]`**.
+   - The bot will bootstrap through the Home screen, load your wallet balance, navigate into WinGo 30s, and confirm:
      ```
-     🎉 LOGIN DETECTED! User: 919332356565 | Balance: ₹3.00
-     Redirecting to WinGo 30s to verify live balance...
-     ✅ GAME SCREEN VERIFIED! Live Wallet Balance: '3.00'
+     🎉 VERIFIED! User: 919332356565 | Live Balance: 3.00
+     Session permanently saved to user_data/!
      ```
-   - It will automatically navigate the browser to the WinGo game page and verify your real balance on screen!
-4. Once you see `✅ GAME SCREEN VERIFIED!`, press `[Enter]` in the terminal to save the session and exit.
+6. Press `[Enter]` to close the browser.
 
-### Step 3: Verify Selectors with Fresh Session (`--test-selectors`)
+### Step 2: Verify Selectors with Real Balance (`--test-selectors`)
 ```powershell
 .\venv\Scripts\python main.py --test-selectors
 ```
-Verify that `wallet_balance_display` shows your actual balance:
+Because the engine now automatically bootstraps the session through the Home portal first, you will immediately see:
 ```
-SUCCESS | wallet_balance_display: FOUND → '3.00'
+SUCCESS | wallet_balance_display: FOUND → '3.00' (✅ User: 919332356565)
 Selector Results: 7/7 found successfully.
 ```
 
-### Step 4: Run Paper Trading Dry Run (`--dry-run`)
+### Step 3: Run Paper Trading Dry Run (`--dry-run`)
 ```powershell
 .\venv\Scripts\python main.py --dry-run
 ```

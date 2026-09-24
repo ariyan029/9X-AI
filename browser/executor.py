@@ -266,7 +266,23 @@ class ActionExecutor:
                     import re
                     clean = re.sub(r"[^\d.]", "", text.strip())
                     if clean:
-                        return float(clean)
+                        val = float(clean)
+                        if val == 0.0:
+                            try:
+                                refresh_btn = await page.query_selector(
+                                    ".Wallet__C-balance-l2, .Wallet__C .van-icon, [class*='reload']"
+                                )
+                                if refresh_btn:
+                                    await refresh_btn.click()
+                                    await asyncio.sleep(0.8)
+                                    updated_text = await element.text_content()
+                                    if updated_text:
+                                        clean_updated = re.sub(r"[^\d.]", "", updated_text.strip())
+                                        if clean_updated:
+                                            return float(clean_updated)
+                            except Exception:
+                                pass
+                        return val
         except Exception:
             pass
         return None

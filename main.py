@@ -69,6 +69,67 @@ def _parse_jwt(token: Optional[str]) -> tuple[bool, str, str]:
     return False, "User", "0.00"
 
 
+async def _navigate_with_session_bootstrap(page, target_url: str):
+    """
+    Ensure the session and wallet store are initialized before opening target game.
+    
+    Veergame requires a brief visit to the Home portal (/#/) to trigger the
+    asynchronous user info and wallet balance APIs into the client store.
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(target_url)
+    home_url = f"{parsed.scheme}://{parsed.netloc}/#/"
+    
+    # 1. Warm up session via Home portal
+    logger.info("Initializing session and wallet via Home portal...")
+    await page.goto(home_url, wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    
+    # Dismiss announcement dialog if present on Home
+    try:
+        dialog_btn = await page.wait_for_selector(
+            "button.announcement-dialog__button, .van-dialog__confirm, button.close, [class*='dialog'] button",
+            timeout=1500,
+        )
+        if dialog_btn:
+            await dialog_btn.click()
+            await asyncio.sleep(0.4)
+    except Exception:
+        pass
+        
+    # 2. Now navigate to target game page
+    logger.info(f"Navigating to target game: {target_url}...")
+    await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+    await asyncio.sleep(2.5)
+
+    # 3. Dismiss announcement dialog if present on Game page
+    try:
+        dialog_btn = await page.wait_for_selector(
+            "button.announcement-dialog__button, .van-dialog__confirm, button.close",
+            timeout=1500,
+        )
+        if dialog_btn:
+            await dialog_btn.click()
+            await asyncio.sleep(0.4)
+    except Exception:
+        pass
+
+    # 4. If wallet balance element displays 0.00, click refresh button to sync
+    try:
+        balance_el = await page.query_selector(".Wallet__C-balance-l1")
+        if balance_el:
+            text = (await balance_el.text_content() or "").strip()
+            if text in ("0.00", "0", "₹0.00", ""):
+                refresh_btn = await page.query_selector(
+                    ".Wallet__C-balance-l2, .Wallet__C .van-icon, [class*='reload']"
+                )
+                if refresh_btn:
+                    await refresh_btn.click()
+                    await asyncio.sleep(1.0)
+    except Exception:
+        pass
+
+
 async def cmd_login(settings: Settings):
     """
     Interactive login flow.
@@ -78,7 +139,6 @@ async def cmd_login(settings: Settings):
     """
     logger.info("Starting interactive login flow...")
     
-    # Direct to login page so operator can immediately enter credentials
     from urllib.parse import urlparse
     parsed = urlparse(settings.BASE_URL)
     origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -101,81 +161,54 @@ async def cmd_login(settings: Settings):
         )
         is_valid, user_name, amount = _parse_jwt(existing_token)
         if is_valid:
-            logger.success(f"Existing valid session found: User '{user_name}' | Balance: ₹{amount}")
-            logger.info(f"Navigating to game page ({settings.BASE_URL}) to confirm live balance...")
-            await page.goto(settings.BASE_URL, wait_until="domcontentloaded")
-            await asyncio.sleep(2.5)
-            balance_el = await page.query_selector(".Wallet__C-balance-l1")
-            dom_balance = (await balance_el.text_content()).strip() if balance_el else amount
-            logger.success(f"✅ VERIFIED! Live Wallet Balance on game screen: {dom_balance}")
-            logger.info("Press [Enter] to exit...")
-            await asyncio.get_event_loop().run_in_executor(None, input)
-            return
+            logger.info("=" * 65)
+            logger.success(f"Existing active session found for User: {user_name}")
+            logger.info("The browser is open at the login screen.")
+            logger.info("Options:")
+            logger.info("  1. Press [Enter] to bootstrap into the game and verify your balance.")
+            logger.info("  2. Or enter new login credentials in the browser window.")
+            logger.info("=" * 65)
+        else:
+            logger.info("=" * 65)
+            logger.info("9X-AI INTERACTIVE AUTHENTICATION")
+            logger.info("=" * 65)
+            logger.info("Browser window is open at: " + login_url)
+            logger.info("1. Enter your mobile number and password in the browser window.")
+            logger.info("2. Click the 'Log in' button (and complete puzzle slider if prompted).")
+            logger.info("3. Once logged in, return here and press [Enter] to bootstrap into")
+            logger.info("   the game and verify your live balance.")
+            logger.info("=" * 65)
 
-        # Purge stale expired tokens on startup to avoid false-positive detection
-        try:
-            await page.evaluate("""() => {
-                const t = localStorage.getItem('token');
-                if (t) {
-                    try {
-                        const parts = t.split('.');
-                        if (parts.length >= 2) {
-                            const payload = JSON.parse(atob(parts[1]));
-                            if (payload.exp && payload.exp < Date.now() / 1000) {
-                                localStorage.removeItem('token');
-                                localStorage.removeItem('ar_token');
-                                localStorage.removeItem('userInfo');
-                            }
-                        }
-                    } catch (e) {
-                        localStorage.removeItem('token');
-                    }
-                }
-            }""")
-        except Exception:
-            pass
+        # Wait for operator to press enter after logging in or deciding to proceed
+        await asyncio.get_event_loop().run_in_executor(None, input)
 
-        logger.info("=" * 65)
-        logger.info("9X-AI INTERACTIVE AUTHENTICATION")
-        logger.info("=" * 65)
-        logger.info("Browser window is open at: " + login_url)
-        logger.info("1. Enter your mobile number and password.")
-        logger.info("2. Click the 'Log in' button (and complete puzzle slider if prompted).")
-        logger.info("3. DO NOT press Enter yet! The system will automatically detect")
-        logger.info("   when you log in, redirect to the game, and verify your balance.")
-        logger.info("=" * 65)
-        logger.info("Waiting for you to log in in the browser window...")
+        # Bootstrap session via Home screen to sync wallet, then open game
+        logger.info("Bootstrapping session via Home screen...")
+        await _navigate_with_session_bootstrap(page, settings.BASE_URL)
+        
+        # Verify balance on game screen
+        balance_el = await page.query_selector(".Wallet__C-balance-l1")
+        dom_balance = (await balance_el.text_content()).strip() if balance_el else "0.00"
+        
+        # Check token validity
+        final_token = await page.evaluate(
+            "() => localStorage.getItem('token') || localStorage.getItem('ar_token')"
+        )
+        is_valid, user_name, _ = _parse_jwt(final_token)
+        
+        if is_valid:
+            logger.success("=" * 65)
+            logger.success(f"🎉 VERIFIED! User: {user_name} | Live Balance: {dom_balance}")
+            logger.success(f"Session permanently saved to {settings.USER_DATA_DIR}/!")
+            logger.success("=" * 65)
+        else:
+            logger.warning("=" * 65)
+            logger.warning(f"⚠️ Balance on game screen is: '{dom_balance}'")
+            logger.warning("Session appears unauthenticated. If balance is 0.00, please run --login again.")
+            logger.warning("=" * 65)
 
-        # Monitor loop: actively polls every 1.0s for fresh JWT
-        while True:
-            if page.is_closed():
-                logger.warning("Browser was closed before login was completed.")
-                break
-
-            token = await page.evaluate(
-                "() => localStorage.getItem('token') || localStorage.getItem('ar_token')"
-            )
-            is_valid, user_name, amount = _parse_jwt(token)
-            if is_valid:
-                logger.success("=" * 65)
-                logger.success(f"🎉 LOGIN DETECTED! User: {user_name} | Balance: ₹{amount}")
-                logger.info(f"Redirecting to WinGo 30s ({settings.BASE_URL}) to verify live balance...")
-                logger.success("=" * 65)
-                
-                await page.goto(settings.BASE_URL, wait_until="domcontentloaded")
-                await asyncio.sleep(3.0)
-
-                # Read live DOM balance
-                balance_el = await page.query_selector(".Wallet__C-balance-l1")
-                live_balance = (await balance_el.text_content()).strip() if balance_el else amount
-                logger.success(f"✅ GAME SCREEN VERIFIED! Live Wallet Balance: '{live_balance}'")
-                logger.info("=" * 65)
-                logger.info("Session saved to user_data/! You can now press [Enter] to exit.")
-                logger.info("=" * 65)
-                await asyncio.get_event_loop().run_in_executor(None, input)
-                break
-
-            await asyncio.sleep(1.0)
+        logger.info("Press [Enter] to close browser...")
+        await asyncio.get_event_loop().run_in_executor(None, input)
 
     finally:
         await ctx_manager.close()
@@ -203,12 +236,8 @@ async def cmd_run(settings: Settings, dry_run: bool = False):
         context = await ctx_manager.create_context()
         page = context.pages[0] if context.pages else await context.new_page()
         
-        logger.info(f"Navigating to {settings.BASE_URL}...")
-        await page.goto(settings.BASE_URL, wait_until="domcontentloaded", timeout=30000)
-        
-        # Settle delay: allow dynamic single-page web app to mount DOM and network listeners
-        logger.info("Waiting 3s for page and dynamic UI components to settle...")
-        await asyncio.sleep(3.0)
+        # Bootstrap session via Home portal, then navigate to target game
+        await _navigate_with_session_bootstrap(page, settings.BASE_URL)
         
         # Create and run orchestrator
         runner = OrchestratorRunner(
@@ -246,23 +275,8 @@ async def cmd_test_selectors(settings: Settings):
         context = await ctx_manager.create_context()
         page = context.pages[0] if context.pages else await context.new_page()
         
-        logger.info(f"Navigating to {settings.BASE_URL}...")
-        await page.goto(settings.BASE_URL, wait_until="domcontentloaded", timeout=30000)
-        
-        # Wait a moment for dynamic content to load
-        await asyncio.sleep(3)
-        
-        # Dismiss any announcement dialog if present
-        try:
-            dialog_btn = await page.wait_for_selector(
-                "button.announcement-dialog__button, .van-dialog__confirm",
-                timeout=1500,
-            )
-            if dialog_btn:
-                await dialog_btn.click()
-                await asyncio.sleep(0.5)
-        except Exception:
-            pass
+        # Bootstrap session via Home portal, then navigate to target game
+        await _navigate_with_session_bootstrap(page, settings.BASE_URL)
 
         # Test each selector
         selector_map = {
