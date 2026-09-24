@@ -232,7 +232,14 @@ class ActionExecutor:
 
     async def confirm_bet(self, page: Page):
         """Click the bet confirmation/submit button."""
-        await self._human_click(page, self.selectors.confirm_bet_button)
+        try:
+            # Try to click without scrolling to prevent jitter in fixed popups
+            locator = page.locator(self.selectors.confirm_bet_button.css).locator("visible=true").first
+            await locator.click(timeout=3000)
+            await self._human_delay(40, 100)
+        except Exception:
+            # Fallback to human_click
+            await self._human_click(page, self.selectors.confirm_bet_button)
 
     async def verify_confirmation(
         self, page: Page, timeout_ms: int = 3000
@@ -340,8 +347,15 @@ class ActionExecutor:
         # Step 1: Select target (Big or Small)
         await self.select_target(page, order.target)
 
+        # Allow popup animation to complete to prevent "shaking" screen
+        # when Playwright tries to scroll to an animating element.
+        await asyncio.sleep(0.8)
+
         # Step 2: Enter stake amount
         await self.set_amount(page, order.amount)
+
+        # Allow reactivity to settle after input
+        await asyncio.sleep(0.5)
 
         # Step 3: Confirm bet
         await self.confirm_bet(page)
