@@ -10,23 +10,23 @@
     "description": "Countdown timer displaying seconds remaining (00 to 30)"
   },
   "history_table_rows": {
-    "css": ".GameRecord__C-body .van-row",
-    "xpath": "//div[contains(@class, 'GameRecord__C-body')]//div[contains(@class, 'van-row')]",
+    "css": ".record-body .van-row, .GameRecord__C-body .van-row",
+    "xpath": "//div[contains(@class, 'record-body') or contains(@class, 'GameRecord__C-body')]//div[contains(@class, 'van-row')]",
     "description": "List of finished round result rows"
   },
   "history_row_round_id": {
-    "css": ".van-col--9, div:first-child",
-    "xpath": ".//div[1]",
+    "css": ".van-col--10, .van-col--9, div:first-child",
+    "xpath": ".//div[contains(@class, 'van-col--10') or contains(@class, 'van-col--9') or position()=1]",
     "description": "Round ID column within a history row"
   },
   "history_row_result_number": {
-    "css": ".GameRecord__C-body-num",
-    "xpath": ".//div[contains(@class, 'GameRecord__C-body-num')]",
+    "css": ".record-body-num, .GameRecord__C-body-num",
+    "xpath": ".//div[contains(@class, 'record-body-num') or contains(@class, 'GameRecord__C-body-num')]",
     "description": "Result number (0-9)"
   },
   "history_row_result_outcome": {
-    "css": ".van-col:nth-child(3) span",
-    "xpath": ".//div[3]//span",
+    "css": ".van-col:last-child, .van-col:nth-child(3) span",
+    "xpath": ".//div[last()] | .//div[3]//span",
     "description": "Label indicating 'Big' or 'Small'"
   },
   "bet_button_big": {
@@ -40,13 +40,13 @@
     "description": "Selection button for Small outcome"
   },
   "amount_input_field": {
-    "css": "input.van-field__control, .Betting__Popup-input input",
-    "xpath": "//input[contains(@class, 'van-field__control')]",
-    "description": "Input field to enter custom bet stake"
+    "css": ".van-popup input[type='number'], .multiplier-section input, .m input, input[type='number'], input.van-field__control, .Betting__Popup-input input",
+    "xpath": "//div[contains(@class, 'van-popup')]//input[@type='number'] | //div[contains(@class, 'multiplier-section')]//input | //input[contains(@class, 'van-field__control')]",
+    "description": "Input field to enter custom bet stake quantity"
   },
   "confirm_bet_button": {
-    "css": ".Betting__Popup-foot-s, div[class*='Betting__Popup-foot-s']",
-    "xpath": "//div[contains(@class, 'Betting__Popup-foot-s')]",
+    "css": "button.bet-amount, .van-popup .bet-amount, .Betting__Popup-foot-s, div[class*='Betting__Popup-foot-s']",
+    "xpath": "//button[contains(@class, 'bet-amount')] | //div[contains(@class, 'Betting__Popup-foot-s')]",
     "description": "Submission button to commit bet order"
   },
   "wallet_balance_display": {

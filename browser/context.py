@@ -67,7 +67,10 @@ class BrowserContextManager:
             timezone_id="Asia/Kolkata",
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-features=IsolateOrigins,site-per-process,CalculateNativeWinOcclusion",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
                 "--disable-infobars",
                 "--no-default-browser-check",
             ],

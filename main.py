@@ -73,46 +73,72 @@ async def _navigate_with_session_bootstrap(page, target_url: str):
     """
     Ensure the session and wallet store are initialized before opening target game.
     
-    Veergame requires a brief visit to the Home portal (/#/) to trigger the
-    asynchronous user info and wallet balance APIs into the client store.
+    Veergame requires a visit to the Home portal (/#/) and an in-app click into
+    WinGo 30S. This triggers the platform's internal `Transfer` API call,
+    transferring user funds from the main platform wallet (ARGame) into the
+    Lottery sub-wallet and rendering the live balance.
     """
     from urllib.parse import urlparse
     parsed = urlparse(target_url)
-    home_url = f"{parsed.scheme}://{parsed.netloc}/#/"
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    home_url = f"{origin}/#/"
     
     # 1. Warm up session via Home portal
     logger.info("Initializing session and wallet via Home portal...")
     await page.goto(home_url, wait_until="domcontentloaded", timeout=20000)
     await asyncio.sleep(2.0)
     
-    # Dismiss announcement dialog if present on Home
+    # Dismiss any announcement/reward dialogs on Home
+    for _ in range(4):
+        try:
+            dialog_btn = await page.wait_for_selector(
+                ".dialog-queue-host button, .dialog-queue-host .van-icon-cross, button.announcement-dialog__button, .reward-amount-dialog__button, .van-dialog__confirm, button.close, [class*='dialog'] [class*='close'], [class*='dialog'] button",
+                timeout=1200,
+            )
+            if dialog_btn:
+                await dialog_btn.click(force=True)
+                await asyncio.sleep(0.5)
+        except Exception:
+            break
+            
+    # 2. In-app click into WinGo 30S to trigger platform 'Transfer' API
+    logger.info("Triggering wallet transfer and entering WinGo 30S...")
+    wingo_clicked = False
     try:
-        dialog_btn = await page.wait_for_selector(
-            "button.announcement-dialog__button, .van-dialog__confirm, button.close, [class*='dialog'] button",
-            timeout=1500,
+        wingo_img = await page.wait_for_selector(
+            "img[src*='inGo_30S'], img[src*='WinGo'], [class*='game']:has-text('WinGo')",
+            state="attached",
+            timeout=2500,
         )
-        if dialog_btn:
-            await dialog_btn.click()
-            await asyncio.sleep(0.4)
-    except Exception:
-        pass
+        if wingo_img:
+            await wingo_img.scroll_into_view_if_needed()
+            parent = await wingo_img.evaluate_handle(
+                "el => el.closest('.game-item') || el.closest('.van-grid-item') || el.parentElement"
+            )
+            if parent:
+                await parent.as_element().click(force=True)
+                wingo_clicked = True
+                await asyncio.sleep(2.5)
+    except Exception as e:
+        logger.debug(f"Home card click bypassed: {e}")
         
-    # 2. Now navigate to target game page
-    logger.info(f"Navigating to target game: {target_url}...")
-    await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-    await asyncio.sleep(2.5)
-
+    # If not clicked or not yet on game page, navigate via router
+    if not wingo_clicked or "WinGo" not in (getattr(page, "url", "") or ""):
+        logger.info(f"Navigating to target game: {target_url}...")
+        await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(2.5)
+        
     # 3. Dismiss announcement dialog if present on Game page
-    try:
-        dialog_btn = await page.wait_for_selector(
-            "button.announcement-dialog__button, .van-dialog__confirm, button.close",
-            timeout=1500,
-        )
-        if dialog_btn:
-            await dialog_btn.click()
-            await asyncio.sleep(0.4)
-    except Exception:
-        pass
+    for _ in range(2):
+        try:
+            dialog_btn = await page.query_selector(
+                "button.announcement-dialog__button, .van-dialog__confirm, button.close, [class*='dialog'] button"
+            )
+            if dialog_btn:
+                await dialog_btn.click(force=True)
+                await asyncio.sleep(0.4)
+        except Exception:
+            pass
 
     # 4. If wallet balance element displays 0.00, click refresh button to sync
     try:
@@ -124,7 +150,7 @@ async def _navigate_with_session_bootstrap(page, target_url: str):
                     ".Wallet__C-balance-l2, .Wallet__C .van-icon, [class*='reload']"
                 )
                 if refresh_btn:
-                    await refresh_btn.click()
+                    await refresh_btn.click(force=True)
                     await asyncio.sleep(1.0)
     except Exception:
         pass
@@ -330,7 +356,7 @@ async def cmd_test_selectors(settings: Settings):
                 # If we just tested confirm_bet_button, safely dismiss the popup
                 if name == "confirm_bet_button":
                     cancel_btn = await page.query_selector(
-                        ".Betting__Popup-foot-c, div:has-text('Cancel')"
+                        "button.cancel, .van-popup .cancel, .Betting__Popup-foot-c, div:has-text('Cancel')"
                     )
                     if cancel_btn:
                         await cancel_btn.click()

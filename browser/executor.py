@@ -95,36 +95,55 @@ class ActionExecutor:
         Raises:
             TimeoutError: If element is not found within timeout.
         """
-        element = await page.wait_for_selector(
-            selector.css, timeout=5000, state="visible"
-        )
+        element = None
+        # Check candidates to find a currently visible instance (avoids hidden modal popups)
+        try:
+            candidates = await page.query_selector_all(selector.css)
+            for cand in candidates:
+                if await cand.is_visible():
+                    element = cand
+                    break
+        except Exception:
+            pass
+
         if element is None:
-            # Fallback to XPath
-            if selector.xpath:
+            try:
                 element = await page.wait_for_selector(
-                    f"xpath={selector.xpath}", timeout=3000, state="visible"
+                    f"{selector.css} >> visible=true", timeout=2500
                 )
-            if element is None:
-                raise TimeoutError(
-                    f"Element not found: {selector.description or selector.css}"
+            except Exception:
+                pass
+
+        if element is None:
+            try:
+                element = await page.wait_for_selector(
+                    selector.css, timeout=3000, state="visible"
                 )
+            except Exception:
+                pass
 
-        # Get element bounding box for natural mouse movement
-        box = await element.bounding_box()
-        if box:
-            # Add slight random offset within the element
-            x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
-            y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
-            
-            # Move mouse in natural steps
-            await page.mouse.move(x, y, steps=random.randint(5, 15))
-            await self._human_delay(50, 150)
-            await page.mouse.click(x, y)
-        else:
-            # Fallback: direct element click
-            await element.click()
+        if element is None and selector.xpath:
+            try:
+                element = await page.wait_for_selector(
+                    f"xpath={selector.xpath}", timeout=2000, state="visible"
+                )
+            except Exception:
+                pass
 
-        await self._human_delay()
+        if element is None:
+            raise TimeoutError(
+                f"Element not found: {selector.description or selector.css}"
+            )
+
+        # Ensure element is scrolled into view and clickable
+        try:
+            await element.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+
+        await self._human_delay(40, 100)
+        await element.click()
+        await self._human_delay(40, 100)
 
     async def select_target(self, page: Page, target: GameOutcome):
         """
@@ -154,16 +173,28 @@ class ActionExecutor:
         """
         if self.selectors.amount_input_field:
             try:
-                element = await page.wait_for_selector(
-                    self.selectors.amount_input_field.css,
-                    timeout=3000,
-                    state="visible",
-                )
+                # Find visible input element
+                element = None
+                candidates = await page.query_selector_all(self.selectors.amount_input_field.css)
+                for cand in candidates:
+                    if await cand.is_visible():
+                        element = cand
+                        break
+
+                if element is None:
+                    element = await page.wait_for_selector(
+                        f"{self.selectors.amount_input_field.css} >> visible=true",
+                        timeout=2000,
+                    )
+
                 if element:
-                    await element.click(click_count=3)  # Select all existing text
-                    await self._human_delay(50, 100)
+                    await element.click()
+                    await self._human_delay(30, 80)
                     await element.fill(str(amount))
-                    await self._human_delay()
+                    await self._human_delay(30, 80)
+                    await element.dispatch_event("input")
+                    await element.dispatch_event("change")
+                    await self._human_delay(30, 80)
                     return
             except Exception:
                 pass

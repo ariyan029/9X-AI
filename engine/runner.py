@@ -80,6 +80,12 @@ class OrchestratorRunner:
             f"Timing window: [{TimingGatekeeper.MIN_SECONDS}s, {TimingGatekeeper.MAX_SECONDS}s]."
         )
 
+        # Attach zero-latency network interceptor to capture API round outcomes
+        try:
+            await self.observer.attach_network(page)
+        except Exception as e:
+            logger.debug(f"Could not attach network interceptor: {e}")
+
         while not self.kill_switch.is_triggered:
             try:
                 # Check if browser window was closed by user
@@ -176,47 +182,132 @@ class OrchestratorRunner:
                     message=result.message,
                 )
 
-                # Capture pending bet order
+                # Always synchronize pending bet order with the latest state machine result
                 if result.bet_order:
-                    self._pending_order = result.bet_order
-                    logger.info(
-                        f"Pending bet: {result.bet_order.target.value} "
-                        f"x{result.bet_order.amount} at ladder step "
-                        f"{result.bet_order.ladder_index}"
+                    # If round_id was not populated, infer from resolution
+                    if not result.bet_order.round_id and resolution.round_id and resolution.round_id.isdigit():
+                        inferred_round = str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
+                        self._pending_order = BetOrder(
+                            round_id=inferred_round,
+                            target=result.bet_order.target,
+                            amount=result.bet_order.amount,
+                            ladder_index=result.bet_order.ladder_index,
+                        )
+                    else:
+                        self._pending_order = result.bet_order
+
+                    target_info = (
+                        f" targeting round {self._pending_order.round_id}"
+                        if self._pending_order.round_id
+                        else ""
                     )
+                    logger.info(
+                        f"Pending bet: {self._pending_order.target.value} "
+                        f"x{self._pending_order.amount} at ladder step "
+                        f"{self._pending_order.ladder_index}{target_info}"
+                    )
+                else:
+                    self._pending_order = None
 
     async def _try_execute_bet(self, page, snapshot: ObserverSnapshot):
         """
         Attempt to execute a pending bet order if all conditions are met.
         
         Conditions:
-        1. Timing window is valid (10s ≤ T ≤ 25s)
-        2. No duplicate bet already placed on this round
-        3. Balance is sufficient (or warning logged in dry-run)
-        4. Not in dry-run mode (or simulate only)
+        1. Target round alignment (do not bet on previous round or discard before target begins)
+        2. Historical settlement check (do not bet on already completed round)
+        3. Idempotency (prevent duplicate bet on same round)
+        4. Timing window is valid (10s ≤ T ≤ 25s)
+        5. History desync guard (await settlement of round N-1 before betting on round N)
+        6. Balance is sufficient (or warning logged in dry-run)
+        7. Execute bet order
         """
-        countdown = snapshot.countdown_seconds
+        if not self._pending_order:
+            return
 
-        # Idempotency guard: prevent double-betting on the same round
-        if snapshot.round_id and self._last_bet_round_id == snapshot.round_id:
+        order = self._pending_order
+        countdown = snapshot.countdown_seconds
+        active_round_id = snapshot.round_id
+
+        # 1. Target round alignment:
+        # If the order targets a specific round ID, verify whether the active round has reached it.
+        # Often a round resolves in history at T=0s or 1s while the DOM header still displays
+        # the previous round ID. We must NOT bet on the previous round or discard the order
+        # for timing lockout before the target round has even begun!
+        if order.round_id:
+            if active_round_id and active_round_id.isdigit() and order.round_id.isdigit():
+                active_num = int(active_round_id)
+                target_num = int(order.round_id)
+                if active_num < target_num:
+                    logger.debug(
+                        f"Target round {order.round_id} has not started yet "
+                        f"(active: {active_round_id}, T={countdown}s). Awaiting next round."
+                    )
+                    return
+                elif active_num > target_num:
+                    logger.warning(
+                        f"Target round {order.round_id} has already passed (active: {active_round_id}). "
+                        "Discarding stale pending order."
+                    )
+                    self._pending_order = None
+                    return
+            elif active_round_id and active_round_id != order.round_id:
+                logger.debug(
+                    f"Awaiting target round {order.round_id} (active: {active_round_id})."
+                )
+                return
+
+        # 2. Historical settlement check:
+        # If the active round is already present in the history list (e.g. lag == 0),
+        # that round is already finished. Do NOT place a bet or lockout on a finished round.
+        if (
+            active_round_id
+            and snapshot.history
+            and snapshot.history[0].round_id == active_round_id
+        ):
             logger.debug(
-                f"Bet already placed on round {snapshot.round_id}. Suppressing duplicate."
+                f"Active round {active_round_id} is already settled in history. Awaiting transition to next round."
+            )
+            return
+
+        # 3. Idempotency guard: prevent double-betting on the same round
+        if active_round_id and self._last_bet_round_id == active_round_id:
+            logger.debug(
+                f"Bet already placed on round {active_round_id}. Suppressing duplicate."
             )
             self._pending_order = None
             return
 
-        # Check timing window
+        # 4. Check timing window (10s <= T <= 25s)
         if not TimingGatekeeper.is_within_window(countdown):
             if countdown is not None and countdown < TimingGatekeeper.MIN_SECONDS:
                 logger.warning(
                     f"Timing lockout: T={countdown}s < {TimingGatekeeper.MIN_SECONDS}s. "
-                    f"Missed betting window for round {snapshot.round_id or 'active'}. "
+                    f"Missed betting window for round {active_round_id or 'active'}. "
                     "Discarding stale pending order."
                 )
                 self._pending_order = None
             return
 
-        # Check balance
+        # 5. History desync guard: ensure we are not betting on a cycle with missing outcome data
+        if (
+            active_round_id
+            and active_round_id.isdigit()
+            and snapshot.history
+            and snapshot.history[0].round_id.isdigit()
+        ):
+            lag = int(active_round_id) - int(snapshot.history[0].round_id)
+            if 2 <= lag <= 10:
+                logger.warning(
+                    f"History desync guard: Active round is {active_round_id}, "
+                    f"but newest history is {snapshot.history[0].round_id} (lag={lag}). "
+                    f"Awaiting settlement of round {int(active_round_id) - 1} before betting."
+                )
+                if page is not None:
+                    await self.observer.trigger_history_refresh(page)
+                return
+
+        # 6. Check balance
         balance = await self.executor.get_wallet_balance(page)
         if balance is not None:
             if not self.balance_breaker.can_afford(balance, self._pending_order.amount):
@@ -232,16 +323,16 @@ class OrchestratorRunner:
                     self._pending_order = None
                     return
 
-        # Execute or simulate
+        # 7. Execute or simulate
         order = self._pending_order
         self._pending_order = None
-        if snapshot.round_id:
-            self._last_bet_round_id = snapshot.round_id
+        if active_round_id:
+            self._last_bet_round_id = active_round_id
 
         if self.dry_run:
             logger.info(
                 f"[DRY-RUN] Would place bet: {order.target.value} "
-                f"x{order.amount} (ladder step {order.ladder_index})"
+                f"x{order.amount} (ladder step {order.ladder_index}) on round {active_round_id or 'unknown'} (T={countdown}s)"
             )
             return
 
@@ -249,16 +340,16 @@ class OrchestratorRunner:
         try:
             logger.info(
                 f"Executing bet: {order.target.value} x{order.amount} "
-                f"(ladder step {order.ladder_index}, T={countdown}s)"
+                f"(ladder step {order.ladder_index}, round {active_round_id}, T={countdown}s)"
             )
             confirmed = await self.executor.execute_bet_order(page, order)
             if confirmed:
                 logger.success(
-                    f"Bet CONFIRMED: {order.target.value} x{order.amount}"
+                    f"Bet CONFIRMED: {order.target.value} x{order.amount} for round {active_round_id}"
                 )
             else:
                 logger.warning(
-                    f"Bet confirmation UNCERTAIN: {order.target.value} x{order.amount}"
+                    f"Bet confirmation UNCERTAIN: {order.target.value} x{order.amount} for round {active_round_id}"
                 )
         except Exception as e:
             logger.error(f"Bet execution FAILED: {e}")

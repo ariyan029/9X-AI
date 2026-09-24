@@ -141,8 +141,13 @@ class DeterministicStateMachine:
             self.state = EngineState.ACTIVE_BETTING
 
             # Generate the first bet order for the NEXT round
+            target_round = (
+                str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
+                if resolution.round_id.isdigit()
+                else ""
+            )
             bet_order = BetOrder(
-                round_id="",  # Will be filled when the next round starts
+                round_id=target_round,
                 target=target,
                 amount=BetLadder.get_stake(0),
                 ladder_index=0,
@@ -222,8 +227,13 @@ class DeterministicStateMachine:
                 next_step = self.cycle.ladder_index
                 next_stake = BetLadder.get_stake(next_step)
 
+                target_round = (
+                    str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
+                    if resolution.round_id.isdigit()
+                    else ""
+                )
                 bet_order = BetOrder(
-                    round_id="",  # Will be filled for next round
+                    round_id=target_round,
                     target=self.cycle.target,
                     amount=next_stake,
                     ladder_index=next_step,
