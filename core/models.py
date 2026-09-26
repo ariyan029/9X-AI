@@ -9,6 +9,8 @@ from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, List
 
+from core.ladder import MAX_LADDER_INDEX
+
 
 class GameOutcome(str, Enum):
     """Represents the two possible game outcomes: Big (5-9) or Small (0-4)."""
@@ -94,7 +96,7 @@ class BetOrder:
         round_id: The round this bet targets.
         target: The outcome to bet on (BIG or SMALL).
         amount: The stake amount in units.
-        ladder_index: Current position on the 15-step ladder (0-14).
+        ladder_index: Current position on the ladder (0-MAX_LADDER_INDEX).
     """
     round_id: str
     target: GameOutcome
@@ -104,9 +106,9 @@ class BetOrder:
     def __post_init__(self):
         if self.amount <= 0:
             raise ValueError(f"Bet amount must be positive, got {self.amount}")
-        if not (0 <= self.ladder_index <= 14):
+        if not (0 <= self.ladder_index <= MAX_LADDER_INDEX):
             raise ValueError(
-                f"ladder_index must be 0-14, got {self.ladder_index}"
+                f"ladder_index must be 0-{MAX_LADDER_INDEX}, got {self.ladder_index}"
             )
 
 
@@ -125,8 +127,8 @@ class CycleContext:
 
     @property
     def is_exhausted(self) -> bool:
-        """Returns True if ladder has reached the final step (index 14)."""
-        return self.ladder_index >= 14
+        """Returns True if ladder has reached the final step."""
+        return self.ladder_index >= MAX_LADDER_INDEX
 
 
 @dataclass

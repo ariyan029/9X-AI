@@ -245,12 +245,20 @@ class OrchestratorRunner:
                     )
                     return
                 elif active_num > target_num:
+                    # Day-boundary rollover: re-target bet to the current active round
+                    # instead of discarding, so the ladder recovery cycle continues.
                     logger.warning(
                         f"Target round {order.round_id} has already passed (active: {active_round_id}). "
-                        "Discarding stale pending order."
+                        "Re-targeting pending bet to current active round."
                     )
-                    self._pending_order = None
-                    return
+                    self._pending_order = BetOrder(
+                        round_id=active_round_id,
+                        target=order.target,
+                        amount=order.amount,
+                        ladder_index=order.ladder_index,
+                    )
+                    order = self._pending_order
+                    # Continue execution with the re-targeted order
             elif active_round_id and active_round_id != order.round_id:
                 logger.debug(
                     f"Awaiting target round {order.round_id} (active: {active_round_id})."
@@ -338,6 +346,19 @@ class OrchestratorRunner:
 
         # Live execution
         try:
+            # Pre-check: verify browser is still alive before executing
+            try:
+                is_closed = getattr(page, 'is_closed', lambda: False)()
+                if is_closed:
+                    logger.warning(
+                        f"Browser closed before bet execution. "
+                        f"Re-queuing order for {order.target.value} x{order.amount}."
+                    )
+                    self._pending_order = order
+                    return
+            except Exception:
+                pass
+
             logger.info(
                 f"Executing bet: {order.target.value} x{order.amount} "
                 f"(ladder step {order.ladder_index}, round {active_round_id}, T={countdown}s)"
@@ -351,5 +372,18 @@ class OrchestratorRunner:
                 logger.warning(
                     f"Bet confirmation UNCERTAIN: {order.target.value} x{order.amount} for round {active_round_id}"
                 )
+        except TimeoutError as e:
+            # Check if failure was due to browser closure
+            try:
+                is_closed = getattr(page, 'is_closed', lambda: False)()
+            except Exception:
+                is_closed = True
+            if is_closed:
+                logger.warning(
+                    f"Bet execution interrupted — browser was closed. "
+                    f"Order: {order.target.value} x{order.amount} (ladder step {order.ladder_index})"
+                )
+            else:
+                logger.error(f"Bet execution FAILED: {e}")
         except Exception as e:
             logger.error(f"Bet execution FAILED: {e}")

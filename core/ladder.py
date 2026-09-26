@@ -1,5 +1,5 @@
 """
-core/ladder.py — Immutable 15-step bet progression ladder.
+core/ladder.py — Immutable 10-step bet progression ladder.
 
 The ladder defines the exact stake for each step in a risk progression
 ensuring positive net profit at all steps. All values are fixed constants.
@@ -7,19 +7,18 @@ ensuring positive net profit at all steps. All values are fixed constants.
 
 from typing import Tuple
 
-# The immutable 15-step progression ladder (indices 0-14)
+# The immutable 10-step progression ladder (indices 0-9)
 BET_LADDER: Tuple[int, ...] = (
-    1, 3, 7, 15, 35, 75, 150,
-    350, 750, 1500, 3500, 7500, 15000, 35000, 75000
+    10, 30, 70, 150, 350, 750, 1500, 3500, 7500, 15000
 )
 
-# Maximum valid ladder index (15th step, index 14)
-MAX_LADDER_INDEX: int = len(BET_LADDER) - 1  # 14
+# Maximum valid ladder index (10th step, index 9)
+MAX_LADDER_INDEX: int = len(BET_LADDER) - 1  # 9
 
 
 class BetLadder:
     """
-    Manager for the 15-step fixed bet progression ladder.
+    Manager for the 10-step fixed bet progression ladder.
     
     Provides stake lookups, exhaustion checks, cumulative risk
     calculations, and net profit projections. All methods are
@@ -32,13 +31,13 @@ class BetLadder:
         Get the bet stake for a given ladder index.
         
         Args:
-            index: Ladder step (0-14).
+            index: Ladder step (0-9).
             
         Returns:
             The stake amount in units.
             
         Raises:
-            IndexError: If index is out of range [0, 14].
+            IndexError: If index is out of range [0, 9].
         """
         if not (0 <= index <= MAX_LADDER_INDEX):
             raise IndexError(
@@ -55,7 +54,7 @@ class BetLadder:
             index: Current ladder index.
             
         Returns:
-            True if index >= MAX_LADDER_INDEX (step 14).
+            True if index >= MAX_LADDER_INDEX (step 9).
         """
         return index >= MAX_LADDER_INDEX
 
@@ -71,7 +70,7 @@ class BetLadder:
             Sum of all stakes from step 0 to up_to_index.
             
         Raises:
-            IndexError: If up_to_index is out of range [0, 14].
+            IndexError: If up_to_index is out of range [0, 9].
         """
         if not (0 <= up_to_index <= MAX_LADDER_INDEX):
             raise IndexError(
@@ -85,7 +84,7 @@ class BetLadder:
         Calculate the expected payout on a win at the given step (2x multiplier).
         
         Args:
-            index: Ladder step (0-14).
+            index: Ladder step (0-9).
             
         Returns:
             Payout amount (stake * 2).
@@ -100,7 +99,7 @@ class BetLadder:
         Net profit = payout at step - cumulative capital invested through step.
         
         Args:
-            index: Ladder step where the win occurs (0-14).
+            index: Ladder step where the win occurs (0-9).
             
         Returns:
             Net profit on win at this step.
@@ -112,9 +111,9 @@ class BetLadder:
     @staticmethod
     def get_total_ladder_risk() -> int:
         """
-        Calculate the total capital at risk if all 15 steps are lost.
+        Calculate the total capital at risk if all 10 steps are lost.
         
         Returns:
-            Total sum of all ladder stakes (138,886 units).
+            Total sum of all ladder stakes (28,860 units).
         """
         return sum(BET_LADDER)

@@ -6,7 +6,7 @@ Covers:
 - Alternating outcomes never trigger betting
 - Win at any step resets to IDLE_OBSERVING
 - Loss increments ladder index
-- 16 consecutive losses (step 15 lost) → COOLDOWN → IDLE_OBSERVING
+- 10 consecutive losses (step 9 lost) → COOLDOWN → IDLE_OBSERVING
 - Cooldown observes 1 round then resumes
 - Round ID idempotency (duplicate rounds rejected)
 - HALT state blocks all processing
@@ -37,7 +37,7 @@ class TestStreakDetection:
         assert result.new_state == EngineState.ACTIVE_BETTING
         assert result.bet_order is not None
         assert result.bet_order.target == GameOutcome.SMALL
-        assert result.bet_order.amount == BET_LADDER[0]  # 1
+        assert result.bet_order.amount == BET_LADDER[0]  # 10
         assert result.bet_order.ladder_index == 0
 
     def test_three_smalls_trigger_big_bet(self, state_machine):
@@ -52,7 +52,7 @@ class TestStreakDetection:
         assert result.new_state == EngineState.ACTIVE_BETTING
         assert result.bet_order is not None
         assert result.bet_order.target == GameOutcome.BIG
-        assert result.bet_order.amount == BET_LADDER[0]
+        assert result.bet_order.amount == BET_LADDER[0]  # 10
 
     def test_four_consecutive_still_triggers_at_three(self, state_machine):
         """Streak of 4 should trigger at the 3rd round."""
@@ -109,9 +109,9 @@ class TestWinResolution:
         assert result.bet_order is None
         assert state_machine.cycle is None
 
-    @pytest.mark.parametrize("win_step", range(15))
+    @pytest.mark.parametrize("win_step", range(10))
     def test_win_at_each_step(self, state_machine, win_step):
-        """Win at any step K (0-14) should reset to IDLE_OBSERVING."""
+        """Win at any step K (0-9) should reset to IDLE_OBSERVING."""
         # Trigger with 3 BIGs → target SMALL
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
@@ -121,7 +121,7 @@ class TestWinResolution:
             loss = make_resolution(f"loss_{i:04d}", 7)  # BIG = loss
             result = state_machine.on_round_resolved(loss)
             if state_machine.state == EngineState.COOLDOWN:
-                # Step 14 was lost → ladder exhausted, can't win anymore
+                # Step 9 was lost → ladder exhausted, can't win anymore
                 return
             assert result.new_state == EngineState.ACTIVE_BETTING
 
@@ -149,7 +149,7 @@ class TestLossProgression:
         assert result.new_state == EngineState.ACTIVE_BETTING
         assert result.bet_order is not None
         assert result.bet_order.ladder_index == 1
-        assert result.bet_order.amount == BET_LADDER[1]  # 3
+        assert result.bet_order.amount == BET_LADDER[1]  # 30
         assert result.bet_order.target == GameOutcome.SMALL  # Target unchanged
 
     def test_consecutive_losses_follow_ladder(self, state_machine):
@@ -157,8 +157,8 @@ class TestLossProgression:
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
 
-        # Lose 14 rounds (steps 0 through 13 advance to steps 1 through 14)
-        for i in range(14):
+        # Lose 9 rounds (steps 0 through 8 advance to steps 1 through 9)
+        for i in range(9):
             loss = make_resolution(f"loss_{i:04d}", 7)
             result = state_machine.on_round_resolved(loss)
             assert result.new_state == EngineState.ACTIVE_BETTING
@@ -180,20 +180,20 @@ class TestLossProgression:
 
 
 class TestLadderExhaustion:
-    """Test the 15th loss (step 14) triggers Hard Cycle Abort → COOLDOWN."""
+    """Test the 10th loss (step 9) triggers Hard Cycle Abort → COOLDOWN."""
 
-    def test_step_14_loss_triggers_cooldown(self, state_machine):
-        """Losing at step 14 should transition to COOLDOWN."""
+    def test_step_9_loss_triggers_cooldown(self, state_machine):
+        """Losing at step 9 should transition to COOLDOWN."""
         # Trigger active betting
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
 
-        # Lose 15 rounds (steps 0-14)
-        for i in range(15):
+        # Lose 10 rounds (steps 0-9)
+        for i in range(10):
             loss = make_resolution(f"loss_{i:04d}", 7)
             result = state_machine.on_round_resolved(loss)
 
-        # After 15th loss (step 14), should be in COOLDOWN
+        # After 10th loss (step 9), should be in COOLDOWN
         assert result.new_state == EngineState.COOLDOWN
         assert result.bet_order is None
         assert state_machine.cycle is None
@@ -207,7 +207,7 @@ class TestCooldown:
         # Trigger and exhaust ladder
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
-        for i in range(15):
+        for i in range(10):
             state_machine.on_round_resolved(make_resolution(f"loss_{i:04d}", 7))
         
         assert state_machine.state == EngineState.COOLDOWN
@@ -224,7 +224,7 @@ class TestCooldown:
         # Trigger and exhaust
         for r in make_streak(GameOutcome.BIG, 3):
             state_machine.on_round_resolved(r)
-        for i in range(15):
+        for i in range(10):
             state_machine.on_round_resolved(make_resolution(f"loss_{i:04d}", 7))
         
         # Cooldown round (ID must sort after loss rounds)

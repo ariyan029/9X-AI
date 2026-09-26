@@ -8,8 +8,8 @@ BetOrder directives. All decisions are deterministic and fully unit-testable.
 State Transitions:
     IDLE_OBSERVING  →  ACTIVE_BETTING   (3 consecutive identical outcomes)
     ACTIVE_BETTING  →  IDLE_OBSERVING   (win: target outcome hit)
-    ACTIVE_BETTING  →  ACTIVE_BETTING   (loss: ladder_index < 15)
-    ACTIVE_BETTING  →  COOLDOWN         (loss at step 15: ladder exhausted)
+    ACTIVE_BETTING  →  ACTIVE_BETTING   (loss: ladder_index < 9)
+    ACTIVE_BETTING  →  COOLDOWN         (loss at step 9: ladder exhausted)
     ACTIVE_BETTING  →  HALT             (insufficient balance)
     COOLDOWN        →  IDLE_OBSERVING   (1 clean round observed)
     ANY             →  HALT             (fatal error)
@@ -56,8 +56,8 @@ class DeterministicStateMachine:
     with optional BetOrder directives. Guarantees:
     - At most one bet per round (idempotency via round_id tracking).
     - Streak detection requires exactly N consecutive identical outcomes.
-    - Ladder progression follows the fixed 15-step sequence.
-    - Exhaustion at step 14 triggers cooldown, not further betting.
+    - Ladder progression follows the fixed 10-step sequence.
+    - Exhaustion at step 9 triggers cooldown, not further betting.
     """
 
     def __init__(self):

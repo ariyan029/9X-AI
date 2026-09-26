@@ -118,7 +118,7 @@ class TestBetOrder:
 
     def test_invalid_ladder_index_raises(self):
         with pytest.raises(ValueError, match="ladder_index"):
-            BetOrder(round_id="001", target=GameOutcome.BIG, amount=1, ladder_index=15)
+            BetOrder(round_id="001", target=GameOutcome.BIG, amount=1, ladder_index=10)
 
     def test_negative_ladder_index_raises(self):
         with pytest.raises(ValueError, match="ladder_index"):
@@ -180,14 +180,14 @@ class TestCycleContext:
         assert ctx.streak_origin == GameOutcome.BIG
         assert ctx.is_exhausted is False
 
-    def test_not_exhausted_at_13(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=13)
+    def test_not_exhausted_at_8(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=8)
         assert ctx.is_exhausted is False
 
-    def test_is_exhausted_at_14(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=14)
+    def test_is_exhausted_at_9(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=9)
         assert ctx.is_exhausted is True
 
-    def test_is_exhausted_above_14(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=15)
+    def test_is_exhausted_above_9(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=10)
         assert ctx.is_exhausted is True

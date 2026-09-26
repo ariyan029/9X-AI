@@ -12,36 +12,31 @@
 ### Core Features
 - **Deterministic State Machine:** Pure functional state transitions. Decoupled from all browser and network dependencies.
 - **3-Streak Trigger Rule:** Waits for 3 consecutive identical outcomes (`Big` or `Small`), then triggers an active betting cycle on the opposite outcome.
-- **Fixed 15-Step Risk Ladder:** Martingale-style risk sequence with a hard cycle abort at Step 14 (max 15 consecutive losses) to prevent account blowouts. All steps guarantee positive net profit.
+- **Fixed 10-Step Risk Ladder:** Martingale-style risk sequence with a hard cycle abort at Step 9 (max 10 consecutive losses) to prevent account blowouts. All steps guarantee positive net profit.
 - **Strict Timing Gatekeeper:** Enforces a safe betting window $[10\text{s}, 25\text{s}]$ within each 30-second cycle. Automatically suppresses execution during the final 9 seconds to prevent lockout rejections.
 - **Anti-Fingerprint Stealth & Session Persistence:** Uses `launch_persistent_context` to retain human login sessions across runs, combined with `playwright-stealth` to evade bot detection.
 - **Safety Circuit Breakers:** Real-time wallet balance floor guard, consecutive DOM desync detector with automatic screenshot/DOM dumps, and clean `SIGINT` (Ctrl+C) shutdown.
 
 ---
 
-## 2. 15-Step Progression Ladder
+## 2. 10-Step Progression Ladder
 
-$$\text{Ladder} = [1, 3, 7, 15, 35, 75, 150, 350, 750, 1500, 3500, 7500, 15000, 35000, 75000]$$
+$$\text{Ladder} = [10, 30, 70, 150, 350, 750, 1500, 3500, 7500, 15000]$$
 
 | Step | Stake (Units) | Cumulative Risk | Payout (2x) | Net Profit on Win | Note |
 | :---: | :---: | :---: | :---: | :---: | :--- |
-| **0** | **1** | 1 | 2 | **+1** | Cycle start |
-| **1** | **3** | 4 | 6 | **+2** | |
-| **2** | **7** | 11 | 14 | **+3** | |
-| **3** | **15** | 26 | 30 | **+4** | |
-| **4** | **35** | 61 | 70 | **+9** | |
-| **5** | **75** | 136 | 150 | **+14** | |
-| **6** | **150** | 286 | 300 | **+14** | |
-| **7** | **350** | 636 | 700 | **+64** | |
-| **8** | **750** | 1,386 | 1,500 | **+114** | |
-| **9** | **1,500** | 2,886 | 3,000 | **+114** | |
-| **10** | **3,500** | 6,386 | 7,000 | **+614** | |
-| **11** | **7,500** | 13,886 | 15,000 | **+1,114** | |
-| **12** | **15,000** | 28,886 | 30,000 | **+1,114** | |
-| **13** | **35,000** | 63,886 | 70,000 | **+6,114** | |
-| **14** | **75,000** | **138,886** | 150,000 | **+11,114** | Final ladder step |
+| **0** | **10** | 10 | 20 | **+10** | Cycle start |
+| **1** | **30** | 40 | 60 | **+20** | |
+| **2** | **70** | 110 | 140 | **+30** | |
+| **3** | **150** | 260 | 300 | **+40** | |
+| **4** | **350** | 610 | 700 | **+90** | |
+| **5** | **750** | 1,360 | 1,500 | **+140** | |
+| **6** | **1,500** | 2,860 | 3,000 | **+140** | |
+| **7** | **3,500** | 6,360 | 7,000 | **+640** | |
+| **8** | **7,500** | 13,860 | 15,000 | **+1,140** | |
+| **9** | **15,000** | **28,860** | 30,000 | **+1,140** | Final ladder step |
 
-> **Hard Cycle Abort:** If Step 14 loses (15 total consecutive losses), the cycle aborts immediately. Total capital loss of 138,886 is registered to the audit log, the ladder index resets to 0, and the engine drops into `COOLDOWN` for 1 round before returning to `IDLE_OBSERVING`.
+> **Hard Cycle Abort:** If Step 9 loses (10 total consecutive losses), the cycle aborts immediately. Total capital loss of 28,860 is registered to the audit log, the ladder index resets to 0, and the engine drops into `COOLDOWN` for 1 round before returning to `IDLE_OBSERVING`.
 
 ---
 

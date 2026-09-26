@@ -202,10 +202,10 @@ async def test_runner_timing_lockout_only_applies_to_target_round(runner):
 
 
 @pytest.mark.asyncio
-async def test_runner_stale_order_discarded_if_target_passed(runner):
+async def test_runner_stale_order_retargets_to_active_round(runner):
     """
-    If active round has progressed past the target round (e.g. 2272 > 2271),
-    the pending order targeting 2271 is discarded as stale.
+    If active round has progressed past the target round (e.g. day rollover),
+    the pending order is re-targeted to the current active round and executed.
     """
     order = BetOrder(round_id="20260924100052271", target=GameOutcome.SMALL, amount=1, ladder_index=0)
     runner._pending_order = order
@@ -213,8 +213,8 @@ async def test_runner_stale_order_discarded_if_target_passed(runner):
     snapshot = ObserverSnapshot(round_id="20260924100052272", countdown_seconds=20)
     await runner._try_execute_bet(page=None, snapshot=snapshot)
 
+    # In dry-run mode: bet should have been placed (re-targeted), pending cleared
     assert runner._pending_order is None
-    assert runner._last_bet_round_id is None
-
+    assert runner._last_bet_round_id == "20260924100052272"
 
 
