@@ -205,7 +205,7 @@ class DeterministicStateMachine:
             current_step = self.cycle.ladder_index
 
             if current_step >= MAX_LADDER_INDEX:
-                # Hard Cycle Abort: 16th loss (step 15)
+                # Hard Cycle Abort: final loss at step 9 (ladder exhausted)
                 total_loss = BetLadder.get_cumulative_risk(MAX_LADDER_INDEX)
                 self.cooldown_round_id = resolution.round_id
                 self._reset_cycle()

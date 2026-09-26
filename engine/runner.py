@@ -385,5 +385,13 @@ class OrchestratorRunner:
                 )
             else:
                 logger.error(f"Bet execution FAILED: {e}")
+                # Re-queue the order so the ladder cycle can retry on the next round.
+                # Without this, a popup failure would silently kill the entire cycle.
+                self._pending_order = order
+                self._last_bet_round_id = None  # Allow retry on next round
+                logger.info(
+                    f"Re-queued bet order: {order.target.value} x{order.amount} "
+                    f"(ladder step {order.ladder_index}) for retry on next round."
+                )
         except Exception as e:
             logger.error(f"Bet execution FAILED: {e}")

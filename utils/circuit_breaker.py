@@ -123,6 +123,7 @@ class DesyncCircuitBreaker:
                     val.close()
                 else:
                     is_closed = bool(val)
+
         except Exception:
             is_closed = True
 
