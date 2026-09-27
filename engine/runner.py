@@ -24,6 +24,7 @@ from utils.circuit_breaker import (
     EmergencyKillSwitch,
 )
 from utils.logger import log_round_event
+from utils.data_tracker import BettingDataTracker
 
 
 class OrchestratorRunner:
@@ -54,6 +55,7 @@ class OrchestratorRunner:
             max_retries=settings.MAX_DESYNC_RETRIES
         )
         self.kill_switch = EmergencyKillSwitch()
+        self.data_tracker = BettingDataTracker()
 
         # Configure timing window from settings
         TimingGatekeeper.configure(
@@ -160,6 +162,9 @@ class OrchestratorRunner:
 
         for resolution in reversed(snapshot.history):
             if self.observer.is_new_round(resolution.round_id):
+                # Feed to data tracker
+                self.data_tracker.process_outcome(resolution.outcome)
+
                 # Feed to state machine
                 result = self.state_machine.on_round_resolved(resolution)
                 self.observer.mark_processed(resolution.round_id)
