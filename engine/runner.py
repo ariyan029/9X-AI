@@ -34,7 +34,17 @@ class OrchestratorRunner:
     Continuously polls the DOM observer, feeds events to the
     state machine, and dispatches bet orders through the executor
     when timing and safety conditions are met.
+    
+    Includes network interruption resilience: if WiFi drops or the
+    connection is temporarily lost, the engine enters a recovery mode
+    with exponential backoff instead of immediately HALT-ing.
     """
+
+    # Network recovery constants
+    _RECOVERY_BACKOFF_BASE: float = 2.0      # Initial backoff seconds
+    _RECOVERY_BACKOFF_MAX: float = 30.0      # Maximum backoff seconds
+    _RECOVERY_MAX_ATTEMPTS: int = 120        # ~10+ minutes of retries before HALT
+    _RECOVERY_PAGE_RELOAD_AFTER: int = 10    # Reload page after this many failures
 
     def __init__(
         self,
@@ -68,11 +78,89 @@ class OrchestratorRunner:
         self._last_snapshot_round_id: Optional[str] = None
         self._last_bet_round_id: Optional[str] = None
 
+        # Network recovery state
+        self._consecutive_network_failures: int = 0
+        self._in_recovery_mode: bool = False
+
+    async def _attempt_network_recovery(self, page) -> bool:
+        """
+        Attempt to recover from a network interruption.
+        
+        Tries API-based history fetch first (doesn't need browser DOM).
+        If failures persist, attempts a page reload to re-establish
+        the browser connection.
+        
+        Returns:
+            True if recovery was successful (API returned data), False otherwise.
+        """
+        self._consecutive_network_failures += 1
+        failures = self._consecutive_network_failures
+
+        # Calculate exponential backoff: 2s, 4s, 8s, 16s, 30s, 30s, ...
+        backoff = min(
+            self._RECOVERY_BACKOFF_BASE * (2 ** min(failures - 1, 4)),
+            self._RECOVERY_BACKOFF_MAX,
+        )
+
+        if not self._in_recovery_mode:
+            self._in_recovery_mode = True
+            logger.warning(
+                "🌐 Network interruption detected! Entering recovery mode. "
+                "The engine will keep retrying until connectivity is restored."
+            )
+
+        logger.info(
+            f"🔄 Recovery attempt #{failures}/{self._RECOVERY_MAX_ATTEMPTS} "
+            f"— waiting {backoff:.0f}s before retry..."
+        )
+
+        await asyncio.sleep(backoff)
+
+        # Strategy 1: Try direct API fetch (bypasses browser entirely)
+        try:
+            api_results = await self.observer.fetch_live_history()
+            if api_results:
+                logger.success(
+                    f"✅ Network recovered via API! Got {len(api_results)} rounds. "
+                    "Resuming live tracking."
+                )
+                # Feed API results into the network interceptor cache
+                for r in api_results:
+                    self.observer.network_interceptor.record_resolution(r)
+                self._consecutive_network_failures = 0
+                self._in_recovery_mode = False
+                self.desync_breaker.reset()
+                return True
+        except Exception as e:
+            logger.debug(f"API recovery attempt failed: {e}")
+
+        # Strategy 2: Attempt page reload after sustained failures
+        if failures % self._RECOVERY_PAGE_RELOAD_AFTER == 0:
+            logger.info(
+                f"🔃 Attempting browser page reload (failure #{failures})..."
+            )
+            try:
+                is_closed = getattr(page, "is_closed", lambda: False)()
+                if not is_closed:
+                    await page.reload(wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2.0)
+                    # Re-attach network interceptor after reload
+                    try:
+                        await self.observer.attach_network(page)
+                    except Exception:
+                        pass
+                    logger.info("Page reloaded. Checking if DOM is responsive...")
+            except Exception as e:
+                logger.debug(f"Page reload failed (expected during offline): {e}")
+
+        return False
+
     async def run(self, page):
         """
         Main orchestration loop.
         
         Runs continuously until HALT, kill switch, or SIGINT.
+        Includes network interruption resilience with automatic recovery.
         
         Args:
             page: Playwright page instance connected to the target app.
@@ -115,16 +203,46 @@ class OrchestratorRunner:
                 # Step 1: Take DOM snapshot
                 snapshot = await self.observer.take_snapshot(page)
 
-                # Step 2: Check for desync
+                # Step 2: Check for desync / network interruption
                 if snapshot.round_id is None and snapshot.countdown_seconds is None:
-                    self.desync_breaker.record_error("No round ID or countdown found")
-                    if self.desync_breaker.is_tripped():
-                        await self.desync_breaker.capture_diagnostics(page)
+                    # Check if API is also unreachable (true network outage)
+                    # vs DOM-only issue (page state problem)
+                    if self._consecutive_network_failures < self._RECOVERY_MAX_ATTEMPTS:
+                        recovered = await self._attempt_network_recovery(page)
+                        if recovered:
+                            # Recovery succeeded — take a fresh snapshot and continue
+                            snapshot = await self.observer.take_snapshot(page)
+                            if snapshot.round_id is not None or snapshot.countdown_seconds is not None:
+                                self.desync_breaker.record_success()
+                            else:
+                                # API recovered but DOM still not responding
+                                # Process any API-sourced history anyway
+                                if snapshot.history:
+                                    await self._process_history(snapshot)
+                                continue
+                        else:
+                            # Still offline — don't count towards desync HALT yet
+                            continue
+                    else:
+                        # Exhausted all recovery attempts
+                        logger.critical(
+                            f"🚫 Network recovery failed after {self._RECOVERY_MAX_ATTEMPTS} attempts "
+                            f"(~{self._RECOVERY_MAX_ATTEMPTS * self._RECOVERY_BACKOFF_MAX / 60:.0f} min). "
+                            "Triggering HALT."
+                        )
                         self.state_machine.trigger_halt(
-                            f"DOM desync: {self.desync_breaker.error_count} consecutive failures"
+                            f"Sustained network failure: {self._RECOVERY_MAX_ATTEMPTS} "
+                            "consecutive recovery attempts exhausted"
                         )
                         break
                 else:
+                    # Successful DOM read — reset all recovery state
+                    if self._in_recovery_mode:
+                        logger.success(
+                            "✅ DOM connection fully restored! Resuming normal operation."
+                        )
+                        self._in_recovery_mode = False
+                    self._consecutive_network_failures = 0
                     self.desync_breaker.record_success()
 
                 # Step 3: Process new round resolutions from history
@@ -141,12 +259,24 @@ class OrchestratorRunner:
                 logger.info("Orchestrator loop cancelled.")
                 break
             except Exception as e:
-                logger.error(f"Orchestrator error: {e}")
-                self.desync_breaker.record_error(str(e))
-                if self.desync_breaker.is_tripped():
-                    self.state_machine.trigger_halt(f"Unrecoverable error: {e}")
-                    break
-                await asyncio.sleep(1.0)
+                err_str = str(e).lower()
+                # Network-related errors should trigger recovery, not HALT
+                is_network_error = any(keyword in err_str for keyword in [
+                    "net::", "err_internet", "err_network", "timeout",
+                    "connection", "unreachable", "dns", "socket",
+                    "target closed", "session closed", "page closed",
+                    "execution context", "navigating",
+                ])
+                if is_network_error and self._consecutive_network_failures < self._RECOVERY_MAX_ATTEMPTS:
+                    logger.warning(f"Network-related error caught: {e}")
+                    await self._attempt_network_recovery(page)
+                else:
+                    logger.error(f"Orchestrator error: {e}")
+                    self.desync_breaker.record_error(str(e))
+                    if self.desync_breaker.is_tripped():
+                        self.state_machine.trigger_halt(f"Unrecoverable error: {e}")
+                        break
+                    await asyncio.sleep(1.0)
 
         logger.info("Orchestrator loop ended.")
 
