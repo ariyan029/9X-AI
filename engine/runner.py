@@ -78,21 +78,85 @@ class OrchestratorRunner:
         self._last_snapshot_round_id: Optional[str] = None
         self._last_bet_round_id: Optional[str] = None
 
-        # Network recovery state
+        # Network and DOM recovery state
+        self._consecutive_dom_misses: int = 0
         self._consecutive_network_failures: int = 0
         self._in_recovery_mode: bool = False
 
+    async def _dismiss_popups_if_any(self, page) -> bool:
+        """Dismiss any announcement, notification, or modal dialogs that might block the UI."""
+        if not page:
+            return False
+        dialog_selectors = (
+            "button.announcement-dialog__button, "
+            ".reward-amount-dialog__button, "
+            ".dialog-queue-host button, "
+            ".dialog-queue-host .van-icon-cross, "
+            ".van-dialog__confirm, "
+            "[class*='dialog'] button.close, "
+            "[class*='dialog'] [class*='close']"
+        )
+        try:
+            btn = await page.query_selector(dialog_selectors)
+            if btn:
+                await btn.click(force=True)
+                logger.info("Dismissed an overlay dialog.")
+                return True
+        except Exception:
+            pass
+        return False
+
     async def _attempt_network_recovery(self, page) -> bool:
         """
-        Attempt to recover from a network interruption.
+        Attempt to recover from a connection or page disruption.
         
-        Tries API-based history fetch first (doesn't need browser DOM).
-        If failures persist, attempts a page reload to re-establish
-        the browser connection.
+        Checks if the live API is reachable. If reachable, recovers
+        missing round history via API and restores DOM responsiveness
+        (reloading page if necessary).
+        If API is also unreachable, enters network recovery mode with
+        exponential backoff.
         
         Returns:
-            True if recovery was successful (API returned data), False otherwise.
+            True if API or DOM is functional, False if offline.
         """
+        # Strategy 1: Try direct API fetch (bypasses browser DOM)
+        api_results = None
+        try:
+            api_results = await self.observer.fetch_live_history()
+        except Exception as e:
+            logger.debug(f"API recovery check failed: {e}")
+
+        if api_results:
+            # Internet is active! Feed results into network interceptor
+            for r in api_results:
+                self.observer.network_interceptor.record_resolution(r)
+
+            if self._in_recovery_mode:
+                logger.success("✅ Network connectivity verified via API! Resuming tracking.")
+                self._in_recovery_mode = False
+            self._consecutive_network_failures = 0
+
+            # If DOM has been continuously missing for >= 10 attempts, reload page to restore UI
+            if self._consecutive_dom_misses >= 10:
+                logger.info(
+                    f"DOM unresponsive ({self._consecutive_dom_misses} misses). Reloading page to restore UI..."
+                )
+                try:
+                    is_closed = getattr(page, "is_closed", lambda: False)()
+                    if not is_closed:
+                        await page.reload(wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(2.0)
+                        try:
+                            await self.observer.attach_network(page)
+                        except Exception:
+                            pass
+                        await self._dismiss_popups_if_any(page)
+                        logger.info("Page reloaded. Verifying DOM response...")
+                except Exception as e:
+                    logger.debug(f"Page reload failed: {e}")
+            return True
+
+        # Strategy 2: If API is unreachable, this is a TRUE network outage
         self._consecutive_network_failures += 1
         failures = self._consecutive_network_failures
 
@@ -115,44 +179,6 @@ class OrchestratorRunner:
         )
 
         await asyncio.sleep(backoff)
-
-        # Strategy 1: Try direct API fetch (bypasses browser entirely)
-        try:
-            api_results = await self.observer.fetch_live_history()
-            if api_results:
-                logger.success(
-                    f"✅ Network recovered via API! Got {len(api_results)} rounds. "
-                    "Resuming live tracking."
-                )
-                # Feed API results into the network interceptor cache
-                for r in api_results:
-                    self.observer.network_interceptor.record_resolution(r)
-                self._consecutive_network_failures = 0
-                self._in_recovery_mode = False
-                self.desync_breaker.reset()
-                return True
-        except Exception as e:
-            logger.debug(f"API recovery attempt failed: {e}")
-
-        # Strategy 2: Attempt page reload after sustained failures
-        if failures % self._RECOVERY_PAGE_RELOAD_AFTER == 0:
-            logger.info(
-                f"🔃 Attempting browser page reload (failure #{failures})..."
-            )
-            try:
-                is_closed = getattr(page, "is_closed", lambda: False)()
-                if not is_closed:
-                    await page.reload(wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(2.0)
-                    # Re-attach network interceptor after reload
-                    try:
-                        await self.observer.attach_network(page)
-                    except Exception:
-                        pass
-                    logger.info("Page reloaded. Checking if DOM is responsive...")
-            except Exception as e:
-                logger.debug(f"Page reload failed (expected during offline): {e}")
-
         return False
 
     async def run(self, page):
@@ -205,20 +231,32 @@ class OrchestratorRunner:
 
                 # Step 2: Check for desync / network interruption
                 if snapshot.round_id is None and snapshot.countdown_seconds is None:
-                    # Check if API is also unreachable (true network outage)
-                    # vs DOM-only issue (page state problem)
+                    self._consecutive_dom_misses += 1
+
+                    # Transient misses (< 3 ticks, ~0.75s) are normal during round transitions / animations
+                    if self._consecutive_dom_misses < 3:
+                        if snapshot.history:
+                            await self._process_history(snapshot)
+                        await asyncio.sleep(self.settings.poll_interval_seconds)
+                        continue
+
+                    # Dismiss any overlay dialogs if present
+                    if page:
+                        await self._dismiss_popups_if_any(page)
+
+                    # Check network/DOM recovery
                     if self._consecutive_network_failures < self._RECOVERY_MAX_ATTEMPTS:
                         recovered = await self._attempt_network_recovery(page)
                         if recovered:
                             # Recovery succeeded — take a fresh snapshot and continue
                             snapshot = await self.observer.take_snapshot(page)
                             if snapshot.round_id is not None or snapshot.countdown_seconds is not None:
+                                self._consecutive_dom_misses = 0
                                 self.desync_breaker.record_success()
                             else:
-                                # API recovered but DOM still not responding
-                                # Process any API-sourced history anyway
                                 if snapshot.history:
                                     await self._process_history(snapshot)
+                                await asyncio.sleep(self.settings.poll_interval_seconds)
                                 continue
                         else:
                             # Still offline — don't count towards desync HALT yet
@@ -237,6 +275,7 @@ class OrchestratorRunner:
                         break
                 else:
                     # Successful DOM read — reset all recovery state
+                    self._consecutive_dom_misses = 0
                     if self._in_recovery_mode:
                         logger.success(
                             "✅ DOM connection fully restored! Resuming normal operation."

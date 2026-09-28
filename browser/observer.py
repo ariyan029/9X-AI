@@ -198,41 +198,57 @@ class DomObserver:
             return False
 
     async def _query_text(
-        self, page: Page, selector: SelectorTarget, timeout_ms: int = 2000
+        self, page: Page, selector: SelectorTarget, timeout_ms: int = 500
     ) -> Optional[str]:
         """
         Query a DOM element's text content using CSS (primary) or XPath (fallback).
         
+        Optimized with a fast non-blocking path (query_selector) first to avoid
+        freezing the high-frequency polling loop during normal execution.
+        
         Args:
             page: Playwright page instance.
             selector: SelectorTarget with CSS and optional XPath.
-            timeout_ms: Maximum wait time in milliseconds.
+            timeout_ms: Maximum wait time in milliseconds if element is not immediately attached.
             
         Returns:
             Trimmed text content, or None if element not found.
         """
+        # Fast non-blocking query (0ms delay)
         try:
-            # Try CSS first
-            element = await page.wait_for_selector(
-                selector.css, timeout=timeout_ms, state="attached"
-            )
+            element = await page.query_selector(selector.css)
+            if not element and selector.xpath:
+                element = await page.query_selector(f"xpath={selector.xpath}")
             if element:
                 text = await element.text_content()
-                return text.strip() if text else None
+                if text and text.strip():
+                    return text.strip()
         except Exception:
             pass
 
-        # Fallback to XPath
-        if selector.xpath:
+        # Brief fallback wait if not immediately attached
+        if timeout_ms > 0:
+            short_timeout = min(timeout_ms, 300)
             try:
                 element = await page.wait_for_selector(
-                    f"xpath={selector.xpath}", timeout=timeout_ms, state="attached"
+                    selector.css, timeout=short_timeout, state="attached"
                 )
                 if element:
                     text = await element.text_content()
                     return text.strip() if text else None
             except Exception:
                 pass
+
+            if selector.xpath:
+                try:
+                    element = await page.wait_for_selector(
+                        f"xpath={selector.xpath}", timeout=short_timeout, state="attached"
+                    )
+                    if element:
+                        text = await element.text_content()
+                        return text.strip() if text else None
+                except Exception:
+                    pass
 
         return None
 
@@ -245,7 +261,7 @@ class DomObserver:
         Returns:
             Round ID string, or None if not found/invalid.
         """
-        text = await self._query_text(page, self.selectors.current_round_id)
+        text = await self._query_text(page, self.selectors.current_round_id, timeout_ms=300)
         if text:
             match = re.search(r"\d{3,24}", text) or re.search(r"\d+", text)
             if match:
@@ -262,7 +278,7 @@ class DomObserver:
             Integer seconds remaining (0-60), or None if not parseable.
         """
         text = await self._query_text(
-            page, self.selectors.countdown_timer_seconds, timeout_ms=1000
+            page, self.selectors.countdown_timer_seconds, timeout_ms=300
         )
         if text:
             parts = re.findall(r"\d+", text)

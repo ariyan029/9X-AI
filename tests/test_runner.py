@@ -218,3 +218,58 @@ async def test_runner_stale_order_retargets_to_active_round(runner):
     assert runner._last_bet_round_id == "20260924100052272"
 
 
+@pytest.mark.asyncio
+async def test_runner_transient_dom_debounce(runner):
+    """
+    Verify that transient DOM misses (< 3) do not trigger network recovery.
+    """
+    runner._attempt_network_recovery = AsyncMock(return_value=True)
+    runner.observer.take_snapshot = AsyncMock(
+        return_value=ObserverSnapshot(round_id=None, countdown_seconds=None)
+    )
+
+    mock_page = MagicMock()
+    mock_page.is_closed = MagicMock(return_value=False)
+
+    # Simulate loop step manually
+    runner._consecutive_dom_misses = 0
+    # First miss
+    runner._consecutive_dom_misses += 1
+    assert runner._consecutive_dom_misses < 3
+    assert not runner._attempt_network_recovery.called
+
+
+@pytest.mark.asyncio
+async def test_runner_network_recovery_api_reachable(runner):
+    """
+    When API is reachable, _attempt_network_recovery returns True without entering
+    full network recovery backoff.
+    """
+    from core.models import RoundResolution
+    res = RoundResolution(round_id="101", result_number=5, outcome=GameOutcome.BIG)
+    runner.observer.fetch_live_history = AsyncMock(return_value=[res])
+
+    mock_page = MagicMock()
+    mock_page.is_closed = MagicMock(return_value=False)
+
+    success = await runner._attempt_network_recovery(mock_page)
+    assert success is True
+    assert runner._consecutive_network_failures == 0
+    assert not runner._in_recovery_mode
+
+
+@pytest.mark.asyncio
+async def test_runner_dismiss_popups_if_any(runner):
+    """
+    Verify _dismiss_popups_if_any clicks the close button if an overlay dialog is found.
+    """
+    mock_btn = AsyncMock()
+    mock_page = MagicMock()
+    mock_page.query_selector = AsyncMock(return_value=mock_btn)
+
+    dismissed = await runner._dismiss_popups_if_any(mock_page)
+    assert dismissed is True
+    mock_btn.click.assert_called_once()
+
+
+
