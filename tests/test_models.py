@@ -69,7 +69,7 @@ class TestEngineState:
         assert EngineState.HALT == "HALT"
 
     def test_state_count(self):
-        assert len(EngineState) == 4
+        assert len(EngineState) == 5
 
 
 class TestRoundResolution:

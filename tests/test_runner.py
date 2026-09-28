@@ -105,12 +105,13 @@ async def test_runner_pending_order_cleared_on_win_or_idle(runner):
     # Manually seed an existing pending order (e.g. from an earlier round)
     runner._pending_order = BetOrder(round_id="", target=GameOutcome.BIG, amount=15, ladder_index=3)
 
-    # Resolution that results in IDLE (no streak trigger)
+    # Resolution that results in IDLE (identical outcomes)
     snapshot = ObserverSnapshot(
         round_id="20260924100051800",
         countdown_seconds=20,
         history=[
-            RoundResolution(round_id="20260924100051799", result_number=4, outcome=GameOutcome.SMALL)
+            RoundResolution(round_id="20260924100051799", result_number=4, outcome=GameOutcome.SMALL),
+            RoundResolution(round_id="20260924100051798", result_number=4, outcome=GameOutcome.SMALL)
         ]
     )
 
@@ -131,14 +132,14 @@ async def test_runner_streak_resolution_timing_preserves_order_until_next_round(
     """
     from core.models import RoundResolution
 
-    # 1. Streak completes on round 20260924100052270
+    # 1. New bet generated on round 20260924100052270
     snapshot_settlement = ObserverSnapshot(
         round_id="20260924100052270",
         countdown_seconds=1,
         history=[
-            RoundResolution(round_id="20260924100052270", result_number=7, outcome=GameOutcome.BIG),
-            RoundResolution(round_id="20260924100052269", result_number=9, outcome=GameOutcome.BIG),
-            RoundResolution(round_id="20260924100052268", result_number=5, outcome=GameOutcome.BIG),
+            RoundResolution(round_id="20260924100052270", result_number=4, outcome=GameOutcome.SMALL),
+            RoundResolution(round_id="20260924100052269", result_number=7, outcome=GameOutcome.BIG),
+            RoundResolution(round_id="20260924100052268", result_number=4, outcome=GameOutcome.SMALL),
         ]
     )
 
@@ -146,7 +147,7 @@ async def test_runner_streak_resolution_timing_preserves_order_until_next_round(
 
     # State machine must have generated pending bet for upcoming round 2271
     assert runner._pending_order is not None
-    assert runner._pending_order.target == GameOutcome.SMALL
+    assert runner._pending_order.target == GameOutcome.BIG
     assert runner._pending_order.round_id == "20260924100052271"
 
     # 2. Main loop attempts to execute at T=1s while DOM still displays round 2270

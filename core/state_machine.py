@@ -6,13 +6,12 @@ typed events (RoundResolution) and produces state transitions and optional
 BetOrder directives. All decisions are deterministic and fully unit-testable.
 
 State Transitions:
-    IDLE_OBSERVING  →  ACTIVE_BETTING   (3 consecutive identical outcomes)
-    ACTIVE_BETTING  →  IDLE_OBSERVING   (win: target outcome hit)
-    ACTIVE_BETTING  →  ACTIVE_BETTING   (loss: ladder_index < 9)
-    ACTIVE_BETTING  →  COOLDOWN         (loss at step 9: ladder exhausted)
-    ACTIVE_BETTING  →  HALT             (insufficient balance)
-    COOLDOWN        →  IDLE_OBSERVING   (1 clean round observed)
-    ANY             →  HALT             (fatal error)
+    IDLE_OBSERVING    →  ACTIVE_BETTING     (prev != next or first round)
+    ACTIVE_BETTING    →  WAITING_AFTER_BET  (bet resolves, must wait one round)
+    WAITING_AFTER_BET →  IDLE_OBSERVING     (prev == next, wait for streak break)
+    WAITING_AFTER_BET →  ACTIVE_BETTING     (prev != next, bet opposite)
+    IDLE_OBSERVING    →  IDLE_OBSERVING     (prev == next, wait for streak break)
+    ANY               →  HALT               (fatal error)
 """
 
 from dataclasses import dataclass, field
@@ -99,178 +98,71 @@ class DeterministicStateMachine:
                 message=f"Duplicate or stale round {resolution.round_id} ignored.",
             )
 
-        # Record this round
-        self.last_processed_round_id = resolution.round_id
-        self.history.append(resolution)
-
-        # Dispatch to state-specific handler
-        if self.state == EngineState.IDLE_OBSERVING:
-            return self._handle_idle(resolution)
-        elif self.state == EngineState.ACTIVE_BETTING:
-            return self._handle_active_betting(resolution)
-        elif self.state == EngineState.COOLDOWN:
-            return self._handle_cooldown(resolution)
-        elif self.state == EngineState.HALT:
+        if self.state == EngineState.HALT:
             return TransitionResult(
                 new_state=EngineState.HALT,
                 message="Engine is HALTED. Manual reset required.",
             )
-        else:
-            return self._transition_to_halt(
-                f"Unknown state: {self.state}"
-            )
 
-    def _handle_idle(self, resolution: RoundResolution) -> TransitionResult:
-        """
-        IDLE_OBSERVING state handler.
-        
-        Updates streak tracker. If streak reaches the trigger threshold,
-        transitions to ACTIVE_BETTING with target = opposite of streak.
-        """
-        streak_length = self.streak.update(resolution.outcome)
-
-        if streak_length >= STREAK_TRIGGER_THRESHOLD:
-            # Trigger betting on the opposite outcome
-            target = resolution.outcome.opposite
-            self.cycle = CycleContext(
-                target=target,
-                ladder_index=0,
-                streak_origin=resolution.outcome,
-                cycle_start_round_id=resolution.round_id,
-            )
-            self.state = EngineState.ACTIVE_BETTING
-
-            # Generate the first bet order for the NEXT round
-            target_round = (
-                str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
-                if resolution.round_id.isdigit()
-                else ""
-            )
-            bet_order = BetOrder(
-                round_id=target_round,
-                target=target,
-                amount=BetLadder.get_stake(0),
-                ladder_index=0,
-            )
-
-            return TransitionResult(
-                new_state=EngineState.ACTIVE_BETTING,
-                bet_order=bet_order,
-                message=(
-                    f"Streak of {streak_length} {resolution.outcome.value} detected. "
-                    f"Entering ACTIVE_BETTING targeting {target.value} at ladder step 0 "
-                    f"(stake: {BetLadder.get_stake(0)})."
-                ),
-            )
-
-        return TransitionResult(
-            new_state=EngineState.IDLE_OBSERVING,
-            message=(
-                f"Round {resolution.round_id}: {resolution.outcome.value} "
-                f"(streak: {streak_length}/{STREAK_TRIGGER_THRESHOLD})."
-            ),
-        )
-
-    def _handle_active_betting(
-        self, resolution: RoundResolution
-    ) -> TransitionResult:
-        """
-        ACTIVE_BETTING state handler.
-        
-        Evaluates whether the round result is a WIN or LOSS for the
-        active cycle, and produces the appropriate transition.
-        """
-        if self.cycle is None:
-            return self._transition_to_halt("ACTIVE_BETTING with no cycle context.")
-
-        if resolution.outcome == self.cycle.target:
-            # === WIN ===
-            profit = BetLadder.get_net_profit_on_win(self.cycle.ladder_index)
-            step = self.cycle.ladder_index
-            self._reset_cycle()
-            self.state = EngineState.IDLE_OBSERVING
-            # Reset streak with the new outcome
-            self.streak.update(resolution.outcome)
-
-            return TransitionResult(
-                new_state=EngineState.IDLE_OBSERVING,
-                message=(
-                    f"WIN at ladder step {step}! "
-                    f"Net profit: {profit:+d} units. "
-                    f"Resetting to IDLE_OBSERVING."
-                ),
-            )
-        else:
-            # === LOSS ===
-            current_step = self.cycle.ladder_index
-
-            if current_step >= MAX_LADDER_INDEX:
-                # Hard Cycle Abort: final loss at step 9 (ladder exhausted)
-                total_loss = BetLadder.get_cumulative_risk(MAX_LADDER_INDEX)
-                self.cooldown_round_id = resolution.round_id
-                self._reset_cycle()
-                self.state = EngineState.COOLDOWN
-                # Reset streak with the new outcome
-                self.streak.update(resolution.outcome)
-
-                return TransitionResult(
-                    new_state=EngineState.COOLDOWN,
-                    message=(
-                        f"HARD CYCLE ABORT: Lost at step {current_step} (final step). "
-                        f"Total cycle loss: {total_loss} units. "
-                        f"Entering COOLDOWN for 1 round."
-                    ),
-                )
-            else:
-                # Increment ladder, maintain target
-                self.cycle.ladder_index += 1
-                next_step = self.cycle.ladder_index
-                next_stake = BetLadder.get_stake(next_step)
-
-                target_round = (
-                    str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
-                    if resolution.round_id.isdigit()
-                    else ""
-                )
-                bet_order = BetOrder(
-                    round_id=target_round,
-                    target=self.cycle.target,
-                    amount=next_stake,
-                    ladder_index=next_step,
-                )
-
-                return TransitionResult(
-                    new_state=EngineState.ACTIVE_BETTING,
-                    bet_order=bet_order,
-                    message=(
-                        f"LOSS at step {current_step}. "
-                        f"Advancing to step {next_step} "
-                        f"(stake: {next_stake}). "
-                        f"Target remains: {self.cycle.target.value}."
-                    ),
-                )
-
-    def _handle_cooldown(
-        self, resolution: RoundResolution
-    ) -> TransitionResult:
-        """
-        COOLDOWN state handler.
-        
-        Observes one clean round, then returns to IDLE_OBSERVING
-        with a fresh streak counter based on the observed outcome.
-        """
-        self.state = EngineState.IDLE_OBSERVING
-        self.cooldown_round_id = None
-        # Seed the streak tracker with this round's outcome
-        self.streak = StreakTracker()
+        # Record this round
+        self.last_processed_round_id = resolution.round_id
+        self.history.append(resolution)
         self.streak.update(resolution.outcome)
 
+        if self.state == EngineState.ACTIVE_BETTING:
+            # Bet has resolved (win or loss). We must wait one round before betting again.
+            self._reset_cycle()
+            self.state = EngineState.WAITING_AFTER_BET
+            return TransitionResult(
+                new_state=EngineState.WAITING_AFTER_BET,
+                message="Bet resolved. Mandatory wait for one round."
+            )
+
+        # IDLE_OBSERVING or WAITING_AFTER_BET
+        if len(self.history) == 1:
+            return self._handle_bet_on_different(resolution)
+
+        prev_outcome = self.history[-2].outcome
+        curr_outcome = self.history[-1].outcome
+
+        if prev_outcome == curr_outcome:
+            # We had a loss or are in a streak. Wait for a different outcome.
+            if self.state != EngineState.IDLE_OBSERVING:
+                self.state = EngineState.IDLE_OBSERVING
+            return TransitionResult(
+                new_state=EngineState.IDLE_OBSERVING,
+                message=f"Streak {curr_outcome.value}-{curr_outcome.value}. Waiting for different outcome."
+            )
+        else:
+            # Outcome changed. Start a new cycle and bet opposite.
+            return self._handle_bet_on_different(resolution)
+
+    def _handle_bet_on_different(self, resolution: RoundResolution) -> TransitionResult:
+        target = resolution.outcome.opposite
+        self.cycle = CycleContext(
+            target=target,
+            ladder_index=0,
+            streak_origin=resolution.outcome,
+            cycle_start_round_id=resolution.round_id,
+        )
+        self.state = EngineState.ACTIVE_BETTING
+
+        target_round = (
+            str(int(resolution.round_id) + 1).zfill(len(resolution.round_id))
+            if resolution.round_id.isdigit()
+            else ""
+        )
+        bet_order = BetOrder(
+            round_id=target_round,
+            target=target,
+            amount=BetLadder.get_stake(0),
+            ladder_index=0,
+        )
+
         return TransitionResult(
-            new_state=EngineState.IDLE_OBSERVING,
-            message=(
-                f"COOLDOWN complete. Observed round {resolution.round_id}. "
-                f"Resuming IDLE_OBSERVING."
-            ),
+            new_state=EngineState.ACTIVE_BETTING,
+            bet_order=bet_order,
+            message=f"New cycle targeting {target.value} at ladder step 0."
         )
 
     def _transition_to_halt(self, reason: str) -> TransitionResult:
