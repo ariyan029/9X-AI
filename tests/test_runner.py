@@ -138,7 +138,7 @@ async def test_runner_streak_resolution_timing_preserves_order_until_next_round(
         countdown_seconds=1,
         history=[
             RoundResolution(round_id="20260924100052270", result_number=4, outcome=GameOutcome.SMALL),
-            RoundResolution(round_id="20260924100052269", result_number=7, outcome=GameOutcome.BIG),
+            RoundResolution(round_id="20260924100052269", result_number=4, outcome=GameOutcome.SMALL),
             RoundResolution(round_id="20260924100052268", result_number=4, outcome=GameOutcome.SMALL),
         ]
     )
