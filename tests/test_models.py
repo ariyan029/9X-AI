@@ -180,14 +180,14 @@ class TestCycleContext:
         assert ctx.streak_origin == GameOutcome.BIG
         assert ctx.is_exhausted is False
 
-    def test_not_exhausted_at_6(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=6)
+    def test_not_exhausted_at_5(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=5)
         assert ctx.is_exhausted is False
 
-    def test_is_exhausted_at_7(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=7)
+    def test_is_exhausted_at_6(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=6)
         assert ctx.is_exhausted is True
 
-    def test_is_exhausted_above_7(self):
-        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=8)
+    def test_is_exhausted_above_6(self):
+        ctx = CycleContext(target=GameOutcome.SMALL, ladder_index=7)
         assert ctx.is_exhausted is True

@@ -14,19 +14,19 @@ import pytest
 from core.ladder import BetLadder, BET_LADDER, MAX_LADDER_INDEX
 
 
-# Expected ladder values (8 steps)
-EXPECTED_LADDER = (10, 30, 70, 150, 350, 750, 1500, 3500)
-EXPECTED_TOTAL_RISK = 6360
+# Expected ladder values (7 steps)
+EXPECTED_LADDER = (10, 30, 70, 150, 350, 750, 1500)
+EXPECTED_TOTAL_RISK = 2860
 
 
 class TestLadderConstants:
     """Test that ladder constants match the specification exactly."""
 
     def test_ladder_length(self):
-        assert len(BET_LADDER) == 8
+        assert len(BET_LADDER) == 7
 
     def test_max_index(self):
-        assert MAX_LADDER_INDEX == 7
+        assert MAX_LADDER_INDEX == 6
 
     def test_all_values_match_spec(self):
         assert BET_LADDER == EXPECTED_LADDER
@@ -46,7 +46,6 @@ class TestGetStake:
         (4, 350),
         (5, 750),
         (6, 1500),
-        (7, 3500),
     ])
     def test_stake_at_each_step(self, index, expected_stake):
         assert BetLadder.get_stake(index) == expected_stake
@@ -55,9 +54,9 @@ class TestGetStake:
         with pytest.raises(IndexError):
             BetLadder.get_stake(-1)
 
-    def test_index_8_raises(self):
+    def test_index_7_raises(self):
         with pytest.raises(IndexError):
-            BetLadder.get_stake(8)
+            BetLadder.get_stake(7)
 
     def test_large_index_raises(self):
         with pytest.raises(IndexError):
@@ -67,15 +66,15 @@ class TestGetStake:
 class TestIsExhausted:
     """Test ladder exhaustion detection."""
 
-    @pytest.mark.parametrize("index", range(7))
-    def test_not_exhausted_below_7(self, index):
+    @pytest.mark.parametrize("index", range(6))
+    def test_not_exhausted_below_6(self, index):
         assert BetLadder.is_exhausted(index) is False
 
-    def test_exhausted_at_7(self):
-        assert BetLadder.is_exhausted(7) is True
+    def test_exhausted_at_6(self):
+        assert BetLadder.is_exhausted(6) is True
 
-    def test_exhausted_above_7(self):
-        assert BetLadder.is_exhausted(8) is True
+    def test_exhausted_above_6(self):
+        assert BetLadder.is_exhausted(7) is True
         assert BetLadder.is_exhausted(100) is True
 
 
@@ -98,21 +97,21 @@ class TestCumulativeRisk:
         assert BetLadder.get_cumulative_risk(4) == 610  # 260 + 350
 
     def test_full_ladder_risk(self):
-        assert BetLadder.get_cumulative_risk(7) == EXPECTED_TOTAL_RISK
+        assert BetLadder.get_cumulative_risk(6) == EXPECTED_TOTAL_RISK
 
     def test_negative_index_raises(self):
         with pytest.raises(IndexError):
             BetLadder.get_cumulative_risk(-1)
 
-    def test_index_8_raises(self):
+    def test_index_7_raises(self):
         with pytest.raises(IndexError):
-            BetLadder.get_cumulative_risk(8)
+            BetLadder.get_cumulative_risk(7)
 
 
 class TestExpectedPayout:
     """Test payout calculation (2x multiplier)."""
 
-    @pytest.mark.parametrize("index", range(8))
+    @pytest.mark.parametrize("index", range(7))
     def test_payout_is_double_stake(self, index):
         stake = BetLadder.get_stake(index)
         assert BetLadder.get_expected_payout(index) == stake * 2
@@ -129,10 +128,9 @@ class TestNetProfitOnWin:
         4: 90,       # 700 - 610 = 90
         5: 140,      # 1500 - 1360 = 140
         6: 140,      # 3000 - 2860 = 140
-        7: 640,      # 7000 - 6360 = 640
     }
 
-    @pytest.mark.parametrize("index", range(8))
+    @pytest.mark.parametrize("index", range(7))
     def test_net_profit_matches_spec(self, index):
         expected = self.EXPECTED_PROFITS[index]
         actual = BetLadder.get_net_profit_on_win(index)

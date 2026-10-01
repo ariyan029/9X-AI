@@ -74,12 +74,12 @@ class TestStreakAlgorithm:
         state_machine.on_round_resolved(make_resolution("002", 8))
         state_machine.on_round_resolved(make_resolution("003", 9)) # Targets SMALL (step 0)
 
-        # 8 losses (step 0 through 7)
-        for step in range(8):
+        # 7 losses (step 0 through 6)
+        for step in range(7):
             round_str = str(4 + step).zfill(3)
             res = state_machine.on_round_resolved(make_resolution(round_str, 7)) # BIG (Loss)
             
-            if step < 7:
+            if step < 6:
                 assert res.new_state == EngineState.ACTIVE_BETTING
                 assert res.bet_order.ladder_index == step + 1
             else:
