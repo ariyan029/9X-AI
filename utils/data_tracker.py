@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from loguru import logger
 from core.models import GameOutcome
+import urllib.request
 
 class BettingDataTracker:
     """
@@ -35,9 +36,31 @@ class BettingDataTracker:
         if not os.path.exists(self.filename):
             self._write_headers()
 
+        # Attempt to sync true time from internet
+        self.time_offset = 0
+        try:
+            req = urllib.request.Request("https://timeapi.io/api/Time/current/zone?timeZone=UTC", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=3) as response:
+                data = json.loads(response.read().decode())
+                dt_str = data.get("dateTime")
+                if dt_str:
+                    from datetime import timezone
+                    # Remove trailing 'Z' if present, parse, and get timestamp
+                    dt_str = dt_str.rstrip('Z')
+                    # Keep only up to 6 digits of fractional seconds to avoid ValueError in some python versions
+                    if '.' in dt_str:
+                        base, frac = dt_str.split('.')
+                        dt_str = f"{base}.{frac[:6]}"
+                    internet_time = datetime.fromisoformat(dt_str).replace(tzinfo=timezone.utc).timestamp()
+                    
+                    self.time_offset = internet_time - time.time()
+                    logger.info(f"BettingDataTracker: Synced time with internet. Offset: {self.time_offset:.2f}s")
+        except Exception as e:
+            logger.warning(f"BettingDataTracker: Could not sync internet time ({e}). Using local system time.")
+
         # Attempt to resume from saved state
         if not self._load_state():
-            self.cycle_start_time = time.time()
+            self.cycle_start_time = self._current_time()
             self.reset_stats()
             self._save_state()
             self._update_live_summary()
@@ -80,6 +103,14 @@ class BettingDataTracker:
         self.current_streak_length = 0
         logger.info("BettingDataTracker: Initialized fresh 24-hour cycle.")
 
+    def _current_time(self) -> float:
+        """Returns the current unix timestamp adjusted by the internet offset."""
+        return time.time() + getattr(self, 'time_offset', 0)
+
+    def _current_datetime(self) -> datetime:
+        """Returns the current datetime adjusted by the internet offset."""
+        return datetime.fromtimestamp(self._current_time())
+
     def _load_state(self) -> bool:
         """Loads state from JSON. Returns True if successfully resumed."""
         if not os.path.exists(self.state_file):
@@ -89,8 +120,8 @@ class BettingDataTracker:
             with open(self.state_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            saved_start = data.get("cycle_start_time", time.time())
-            elapsed = time.time() - saved_start
+            saved_start = data.get("cycle_start_time", self._current_time())
+            elapsed = self._current_time() - saved_start
             
             # If 24 hours have already elapsed while computer was turned off
             if elapsed >= 86400:
@@ -116,7 +147,7 @@ class BettingDataTracker:
                 self.save_to_csv(archive_reason="Cycle completed (while offline or at startup)")
                 
                 # Reset for new cycle
-                self.cycle_start_time = time.time()
+                self.cycle_start_time = self._current_time()
                 self.reset_stats()
                 self._save_state()
                 self._update_live_summary()
@@ -157,7 +188,7 @@ class BettingDataTracker:
         state = {
             "cycle_start_time": self.cycle_start_time,
             "cycle_start_datetime": datetime.fromtimestamp(self.cycle_start_time).strftime("%Y-%m-%d %H:%M:%S"),
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "last_updated": self._current_datetime().strftime("%Y-%m-%d %H:%M:%S"),
             "total_rounds": self.total_rounds,
             "total_big": self.total_big,
             "total_small": self.total_small,
@@ -177,7 +208,7 @@ class BettingDataTracker:
             logger.warning(f"BettingDataTracker: Could not save state: {e}")
 
     def _record_13_streak_time(self):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = self._current_datetime().strftime("%Y-%m-%d %H:%M:%S")
         self.thirteen_plus_timestamps.append(timestamp)
         # Store in master history
         history = []
@@ -203,7 +234,7 @@ class BettingDataTracker:
         except Exception:
             pass
         
-        cutoff = datetime.now() - timedelta(days=7)
+        cutoff = self._current_datetime() - timedelta(days=7)
         recent = []
         for ts_str in history:
             try:
@@ -216,7 +247,7 @@ class BettingDataTracker:
 
     def _update_live_summary(self):
         """Generates a clean human-readable live summary table file."""
-        elapsed = time.time() - self.cycle_start_time
+        elapsed = self._current_time() - self.cycle_start_time
         remaining = max(0, 86400 - elapsed)
         avg_13_plus = (self.total_rounds / self.thirteen_plus_occurrences) if self.thirteen_plus_occurrences > 0 else 0.0
 
@@ -225,7 +256,7 @@ class BettingDataTracker:
             "              24-HOUR LIVE BETTING TRACKER                \n"
             "==========================================================\n"
             f"Cycle Started   : {datetime.fromtimestamp(self.cycle_start_time).strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"Current Time    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Current Time    : {self._current_datetime().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Time Elapsed    : {elapsed / 3600:.2f} hrs (Remaining: {remaining / 3600:.2f} hrs)\n"
             f"Total Rounds    : {self.total_rounds}\n"
             "----------------------------------------------------------\n"
@@ -326,7 +357,7 @@ class BettingDataTracker:
             "==========================================================\n"
             "              7-DAY LIVE BETTING TRACKER                  \n"
             "==========================================================\n"
-            f"Current Time    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Current Time    : {self._current_datetime().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Total Rounds    : {t_rounds}\n"
             "----------------------------------------------------------\n"
             f"Total BIG       : {t_big}\n"
@@ -364,7 +395,7 @@ class BettingDataTracker:
     def save_to_csv(self, archive_reason=""):
         avg_13_plus = (self.total_rounds / self.thirteen_plus_occurrences) if self.thirteen_plus_occurrences > 0 else 0.0
         start_dt = datetime.fromtimestamp(self.cycle_start_time).strftime("%Y-%m-%d %H:%M:%S")
-        end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        end_dt = self._current_datetime().strftime("%Y-%m-%d %H:%M:%S")
 
         try:
             with open(self.filename, 'a', newline='', encoding='utf-8') as f:
@@ -391,10 +422,10 @@ class BettingDataTracker:
 
     def process_outcome(self, outcome: GameOutcome):
         # 1. Check if 24 hours have elapsed
-        if time.time() - self.cycle_start_time >= 86400:
+        if self._current_time() - self.cycle_start_time >= 86400:
             self.record_streak(finalize=True)
             self.save_to_csv(archive_reason="24-Hour Timer Expiry")
-            self.cycle_start_time = time.time()
+            self.cycle_start_time = self._current_time()
             self.reset_stats()
 
         self.total_rounds += 1
@@ -413,6 +444,14 @@ class BettingDataTracker:
             self.current_streak_type = outcome
             self.current_streak_length = 1
 
+        # Real-time highest streak update
+        if self.current_streak_type == GameOutcome.BIG:
+            if self.current_streak_length > self.highest_streak_big:
+                self.highest_streak_big = self.current_streak_length
+        elif self.current_streak_type == GameOutcome.SMALL:
+            if self.current_streak_length > self.highest_streak_small:
+                self.highest_streak_small = self.current_streak_length
+
         # Real-time state persistence & live readable view update
         self._save_state()
         self._update_live_summary()
@@ -425,13 +464,7 @@ class BettingDataTracker:
         length = self.current_streak_length
         otype = self.current_streak_type
         
-        # Update highest streak
-        if otype == GameOutcome.BIG:
-            if length > self.highest_streak_big:
-                self.highest_streak_big = length
-        elif otype == GameOutcome.SMALL:
-            if length > self.highest_streak_small:
-                self.highest_streak_small = length
+        # (Highest streak is now updated live in process_outcome)
                 
         # Update frequency
         capped_length = min(length, 20)
