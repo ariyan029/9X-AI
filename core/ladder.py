@@ -7,9 +7,9 @@ ensuring positive net profit at all steps. All values are fixed constants.
 
 from typing import Tuple
 
-# The immutable 7-step progression ladder (indices 0-6)
+# The immutable 6-step progression ladder (indices 0-5)
 BET_LADDER: Tuple[int, ...] = (
-    10, 30, 70, 150, 350, 750, 1500
+    40, 110, 225, 500, 1000, 1900
 )
 
 # Maximum valid ladder index
