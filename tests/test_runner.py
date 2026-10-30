@@ -111,7 +111,7 @@ async def test_runner_pending_order_cleared_on_win_or_idle(runner):
         countdown_seconds=20,
         history=[
             RoundResolution(round_id="20260924100051799", result_number=4, outcome=GameOutcome.SMALL),
-            RoundResolution(round_id="20260924100051798", result_number=4, outcome=GameOutcome.SMALL)
+            RoundResolution(round_id="20260924100051798", result_number=7, outcome=GameOutcome.BIG)
         ]
     )
 
@@ -125,7 +125,7 @@ async def test_runner_pending_order_cleared_on_win_or_idle(runner):
 async def test_runner_streak_resolution_timing_preserves_order_until_next_round(runner):
     """
     CRITICAL REGRESSION TEST:
-    When a streak of 3 completes at T=1s of round 2270, the bet order targets
+    When a streak of 2 completes at T=1s of round 2270, the bet order targets
     round 2271. The runner must NOT discard the pending order when T=1s on round
     2270, but instead preserve it and execute once round 2271 starts and reaches
     the valid betting window (T in [10s, 25s]).
@@ -139,7 +139,7 @@ async def test_runner_streak_resolution_timing_preserves_order_until_next_round(
         history=[
             RoundResolution(round_id="20260924100052270", result_number=4, outcome=GameOutcome.SMALL),
             RoundResolution(round_id="20260924100052269", result_number=4, outcome=GameOutcome.SMALL),
-            RoundResolution(round_id="20260924100052268", result_number=4, outcome=GameOutcome.SMALL),
+
         ]
     )
 

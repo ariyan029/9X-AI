@@ -1,5 +1,5 @@
 """
-core/ladder.py — Immutable 10-step bet progression ladder.
+core/ladder.py — Immutable 6-step bet progression ladder.
 
 The ladder defines the exact stake for each step in a risk progression
 ensuring positive net profit at all steps. All values are fixed constants.
@@ -9,7 +9,7 @@ from typing import Tuple
 
 # The immutable 6-step progression ladder (indices 0-5)
 BET_LADDER: Tuple[int, ...] = (
-    40, 110, 225, 500, 1000, 1900
+    50, 100, 200, 400, 750, 1500
 )
 
 # Maximum valid ladder index
@@ -18,7 +18,7 @@ MAX_LADDER_INDEX: int = len(BET_LADDER) - 1
 
 class BetLadder:
     """
-    Manager for the 10-step fixed bet progression ladder.
+    Manager for the 6-step fixed bet progression ladder.
     
     Provides stake lookups, exhaustion checks, cumulative risk
     calculations, and net profit projections. All methods are
@@ -111,9 +111,9 @@ class BetLadder:
     @staticmethod
     def get_total_ladder_risk() -> int:
         """
-        Calculate the total capital at risk if all 10 steps are lost.
+        Calculate the total capital at risk if all 6 steps are lost.
         
         Returns:
-            Total sum of all ladder stakes (28,860 units).
+            Total sum of all ladder stakes (3,000 units).
         """
         return sum(BET_LADDER)

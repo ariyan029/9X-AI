@@ -29,7 +29,7 @@ from core.ladder import BetLadder, MAX_LADDER_INDEX
 
 
 # Minimum consecutive identical outcomes required to trigger betting
-STREAK_TRIGGER_THRESHOLD: int = 3
+STREAK_TRIGGER_THRESHOLD: int = 2
 
 
 @dataclass
@@ -55,8 +55,8 @@ class DeterministicStateMachine:
     with optional BetOrder directives. Guarantees:
     - At most one bet per round (idempotency via round_id tracking).
     - Streak detection requires exactly N consecutive identical outcomes.
-    - Ladder progression follows the fixed 8-step sequence.
-    - Exhaustion at step 7 triggers HALT.
+    - Ladder progression follows the fixed 6-step sequence.
+    - Exhaustion at final step returns to IDLE_OBSERVING.
     """
 
     def __init__(self):

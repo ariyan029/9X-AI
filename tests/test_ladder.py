@@ -15,7 +15,7 @@ from core.ladder import BetLadder, BET_LADDER, MAX_LADDER_INDEX
 
 
 # Expected ladder values (6 steps)
-EXPECTED_LADDER = (40, 110, 225, 500, 1000, 1900)
+EXPECTED_LADDER = (50, 100, 200, 400, 750, 1500)
 EXPECTED_TOTAL_RISK = sum(EXPECTED_LADDER)
 
 
@@ -39,12 +39,12 @@ class TestGetStake:
     """Test stake retrieval for each step."""
 
     @pytest.mark.parametrize("index, expected_stake", [
-        (0, 40),
-        (1, 110),
-        (2, 225),
-        (3, 500),
-        (4, 1000),
-        (5, 1900),
+        (0, 50),
+        (1, 100),
+        (2, 200),
+        (3, 400),
+        (4, 750),
+        (5, 1500),
     ])
     def test_stake_at_each_step(self, index, expected_stake):
         assert BetLadder.get_stake(index) == expected_stake
@@ -81,19 +81,19 @@ class TestCumulativeRisk:
     """Test cumulative capital at risk calculations."""
 
     def test_step_0(self):
-        assert BetLadder.get_cumulative_risk(0) == 40
+        assert BetLadder.get_cumulative_risk(0) == 50
 
     def test_step_1(self):
-        assert BetLadder.get_cumulative_risk(1) == 150  # 40 + 110
+        assert BetLadder.get_cumulative_risk(1) == 150  # 50 + 100
 
     def test_step_2(self):
-        assert BetLadder.get_cumulative_risk(2) == 375  # 150 + 225
+        assert BetLadder.get_cumulative_risk(2) == 350  # 150 + 200
 
     def test_step_3(self):
-        assert BetLadder.get_cumulative_risk(3) == 875  # 375 + 500
+        assert BetLadder.get_cumulative_risk(3) == 750  # 350 + 400
 
     def test_step_4(self):
-        assert BetLadder.get_cumulative_risk(4) == 1875  # 875 + 1000
+        assert BetLadder.get_cumulative_risk(4) == 1500  # 750 + 750
 
     def test_full_ladder_risk(self):
         assert BetLadder.get_cumulative_risk(5) == EXPECTED_TOTAL_RISK
@@ -120,12 +120,12 @@ class TestNetProfitOnWin:
     """Test net profit at each ladder step."""
 
     EXPECTED_PROFITS = {
-        0: 40,       # 80 - 40
-        1: 70,       # 220 - 150
-        2: 75,       # 450 - 375
-        3: 125,      # 1000 - 875
-        4: 125,      # 2000 - 1875
-        5: 25,       # 3800 - 3775
+        0: 50,       # 100 - 50
+        1: 50,       # 200 - 150
+        2: 50,       # 400 - 350
+        3: 50,       # 800 - 750
+        4: 0,        # 1500 - 1500
+        5: 0,        # 3000 - 3000
     }
 
     @pytest.mark.parametrize("index", range(6))
